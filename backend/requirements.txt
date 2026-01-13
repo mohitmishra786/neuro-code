@@ -1,0 +1,36 @@
+# NeuroCode Backend Dependencies
+# Python 3.11+ Required
+
+# Core Framework
+fastapi>=0.109.0
+uvicorn[standard]>=0.27.0
+pydantic>=2.6.0
+pydantic-settings>=2.1.0
+
+# Database
+neo4j>=5.17.0
+
+# Parsing
+tree-sitter>=0.21.0
+tree-sitter-python>=0.21.0
+
+# File Watching
+watchdog>=4.0.0
+
+# HTTP Client
+httpx>=0.26.0
+
+# WebSocket
+websockets>=12.0
+
+# Logging
+structlog>=24.1.0
+
+# Development Dependencies
+pytest>=8.0.0
+pytest-asyncio>=0.23.0
+pytest-cov>=4.1.0
+ruff>=0.2.0
+mypy>=1.8.0
+black>=24.1.0
+pre-commit>=3.6.0

@@ -1,0 +1,44 @@
+{
+    "name": "neurocode-frontend",
+    "version": "0.1.0",
+    "description": "NeuroCode Interactive Code Visualization Frontend",
+    "type": "module",
+    "scripts": {
+        "dev": "vite",
+        "build": "tsc && vite build",
+        "preview": "vite preview",
+        "lint": "eslint . --ext ts,tsx --report-unused-disable-directives --max-warnings 0",
+        "lint:fix": "eslint . --ext ts,tsx --fix",
+        "type-check": "tsc --noEmit",
+        "test": "vitest",
+        "test:ui": "vitest --ui",
+        "test:coverage": "vitest --coverage"
+    },
+    "dependencies": {
+        "@react-sigma/core": "^4.0.3",
+        "@react-sigma/layout-forceatlas2": "^4.0.3",
+        "fuse.js": "^7.0.0",
+        "graphology": "^0.25.4",
+        "graphology-layout-forceatlas2": "^0.10.1",
+        "idb": "^8.0.0",
+        "react": "^18.3.1",
+        "react-dom": "^18.3.1",
+        "sigma": "^3.0.0-beta.26",
+        "zustand": "^4.5.0"
+    },
+    "devDependencies": {
+        "@types/react": "^18.3.3",
+        "@types/react-dom": "^18.3.0",
+        "@typescript-eslint/eslint-plugin": "^7.13.1",
+        "@typescript-eslint/parser": "^7.13.1",
+        "@vitejs/plugin-react": "^4.3.1",
+        "autoprefixer": "^10.4.19",
+        "eslint": "^8.57.0",
+        "eslint-plugin-react-hooks": "^4.6.2",
+        "eslint-plugin-react-refresh": "^0.4.7",
+        "postcss": "^8.4.38",
+        "typescript": "^5.5.2",
+        "vite": "^5.3.1",
+        "vitest": "^1.6.0"
+    }
+}
