@@ -1,16 +1,16 @@
 /**
  * NeuroCode Graph Canvas Component
  *
- * Main graph rendering component using Sigma.js + React-Sigma.
+ * Flow-based graph visualization with Sigma.js.
+ * CRITICAL: Uses CSS to control canvas background for dark mode.
  */
 
 import { useEffect, useCallback, useRef } from 'react';
 import { SigmaContainer, useRegisterEvents, useSigma } from '@react-sigma/core';
-import { useLayoutForceAtlas2 } from '@react-sigma/layout-forceatlas2';
 import '@react-sigma/core/lib/react-sigma.min.css';
 
 import { useGraphStore } from '@/stores/graphStore';
-import { UI_COLORS } from '@/utils/colorScheme';
+import { useThemeStore } from '@/stores/themeStore';
 
 interface GraphEventsProps {
     onNodeClick: (nodeId: string) => void;
@@ -29,52 +29,32 @@ function GraphEvents({ onNodeClick, onNodeHover }: GraphEventsProps) {
             },
             enterNode: (event) => {
                 onNodeHover(event.node);
-                sigma.getGraph().setNodeAttribute(event.node, 'highlighted', true);
+                const graph = sigma.getGraph();
+                graph.setNodeAttribute(event.node, 'highlighted', true);
+                graph.forEachEdge(event.node, (edge) => {
+                    graph.setEdgeAttribute(edge, 'highlighted', true);
+                });
                 sigma.refresh();
             },
             leaveNode: (event) => {
                 onNodeHover(null);
-                sigma.getGraph().setNodeAttribute(event.node, 'highlighted', false);
+                const graph = sigma.getGraph();
+                graph.setNodeAttribute(event.node, 'highlighted', false);
+                graph.forEachEdge(event.node, (edge) => {
+                    graph.setEdgeAttribute(edge, 'highlighted', false);
+                });
                 sigma.refresh();
             },
             doubleClickNode: (event) => {
                 event.preventSigmaDefault();
-                // Center on node
                 const nodeAttributes = sigma.getGraph().getNodeAttributes(event.node);
                 sigma.getCamera().animate(
                     { x: nodeAttributes.x, y: nodeAttributes.y, ratio: 0.5 },
-                    { duration: 300 },
+                    { duration: 400, easing: 'cubicInOut' },
                 );
             },
         });
     }, [registerEvents, sigma, onNodeClick, onNodeHover]);
-
-    return null;
-}
-
-function ForceLayout() {
-    const { start, stop, isRunning } = useLayoutForceAtlas2({
-        settings: {
-            gravity: 0.5,
-            scalingRatio: 2,
-            slowDown: 5,
-            barnesHutOptimize: true,
-            barnesHutTheta: 0.5,
-        },
-    });
-
-    useEffect(() => {
-        // Run layout briefly on mount
-        start();
-        const timeout = setTimeout(() => {
-            stop();
-        }, 2000);
-
-        return () => {
-            clearTimeout(timeout);
-            if (isRunning) stop();
-        };
-    }, [start, stop, isRunning]);
 
     return null;
 }
@@ -87,15 +67,18 @@ export function GraphCanvas() {
     const hoverNode = useGraphStore((state) => state.hoverNode);
     const nodes = useGraphStore((state) => state.nodes);
     const expandedNodes = useGraphStore((state) => state.expandedNodes);
-    const loadRootNodes = useGraphStore((state) => state.loadRootNodes);
+    const loadEntryPoint = useGraphStore((state) => state.loadEntryPoint);
     const isLoading = useGraphStore((state) => state.isLoading);
+
+    const mode = useThemeStore((state) => state.mode);
+    const isDark = mode === 'dark';
 
     const containerRef = useRef<HTMLDivElement>(null);
 
-    // Load root nodes on mount
+    // Load entry point on mount
     useEffect(() => {
-        loadRootNodes();
-    }, [loadRootNodes]);
+        loadEntryPoint();
+    }, [loadEntryPoint]);
 
     const handleNodeClick = useCallback(
         (nodeId: string) => {
@@ -127,42 +110,76 @@ export function GraphCanvas() {
         return (
             <div className="graph-canvas-loading">
                 <div className="spinner" />
-                <p>Loading graph...</p>
+                <p>Loading code flow...</p>
             </div>
         );
     }
 
+    // Colors based on theme
+    const labelColor = isDark ? '#f8fafc' : '#1e293b';
+    const edgeColor = isDark ? 'rgba(148, 163, 184, 0.4)' : 'rgba(100, 116, 139, 0.5)';
+    const edgeHighlightColor = isDark ? 'rgba(129, 140, 248, 0.9)' : 'rgba(79, 70, 229, 0.9)';
+    const nodeDefaultColor = '#6366f1';
+
+    // Canvas background style - CRITICAL for dark mode
+    const canvasStyle: React.CSSProperties = {
+        width: '100%',
+        height: '100%',
+        backgroundColor: isDark ? '#0a0a0f' : '#f8fafc',
+    };
+
     return (
-        <div ref={containerRef} className="graph-canvas">
+        <div
+            ref={containerRef}
+            className="graph-canvas"
+            style={{ backgroundColor: isDark ? '#0a0a0f' : '#f8fafc' }}
+        >
             <SigmaContainer
                 graph={graph}
-                style={{ width: '100%', height: '100%' }}
+                style={canvasStyle}
                 settings={{
+                    allowInvalidContainer: true,
+                    // Label settings
                     renderLabels: true,
-                    labelRenderedSizeThreshold: 6,
-                    labelSize: 12,
-                    labelWeight: 'bold',
-                    labelColor: { color: UI_COLORS.text },
-                    defaultNodeColor: UI_COLORS.accent,
-                    defaultEdgeColor: UI_COLORS.border,
-                    nodeReducer: (node, data) => {
+                    labelRenderedSizeThreshold: 4,
+                    labelSize: 14,
+                    labelWeight: '600',
+                    labelFont: 'Inter, -apple-system, system-ui, sans-serif',
+                    labelColor: { color: labelColor },
+                    // Default colors
+                    defaultNodeColor: nodeDefaultColor,
+                    defaultEdgeColor: edgeColor,
+                    // Performance
+                    enableEdgeEvents: false,
+                    hideLabelsOnMove: false,
+                    hideEdgesOnMove: false,
+                    renderEdgeLabels: false,
+                    // Camera
+                    minCameraRatio: 0.05,
+                    maxCameraRatio: 5,
+                    stagePadding: 100,
+                    // Node styling
+                    nodeReducer: (_node, data) => {
+                        const highlighted = data.highlighted || false;
+                        const baseSize = data.size || 14;
+                        return {
+                            ...data,
+                            size: highlighted ? baseSize * 1.3 : baseSize,
+                            zIndex: highlighted ? 2 : 1,
+                        };
+                    },
+                    // Edge styling with theme-aware colors
+                    edgeReducer: (_edge, data) => {
                         const highlighted = data.highlighted || false;
                         return {
                             ...data,
-                            size: highlighted ? (data.size || 10) * 1.5 : data.size,
-                            zIndex: highlighted ? 1 : 0,
-                        };
-                    },
-                    edgeReducer: (edge, data) => {
-                        return {
-                            ...data,
-                            size: 1,
+                            size: highlighted ? 3 : 2,
+                            color: highlighted ? edgeHighlightColor : edgeColor,
                         };
                     },
                 }}
             >
                 <GraphEvents onNodeClick={handleNodeClick} onNodeHover={handleNodeHover} />
-                <ForceLayout />
             </SigmaContainer>
         </div>
     );

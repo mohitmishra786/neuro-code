@@ -9,8 +9,18 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Annotated
 
+from dotenv import load_dotenv
 from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+# Load .env file into os.environ at module import time
+# This ensures nested BaseSettings classes can read the values
+_env_file = Path(__file__).parent.parent / ".env"
+if _env_file.exists():
+    load_dotenv(_env_file)
+else:
+    # Try current working directory
+    load_dotenv()
 
 
 class Neo4jSettings(BaseSettings):

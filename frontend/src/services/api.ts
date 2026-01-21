@@ -79,7 +79,32 @@ function apiNodeToGraphNode(node: ApiNode, isExpanded = false): GraphNode {
     };
 }
 
+// Entry point response type
+interface EntryPointResponse {
+    entry_point: ApiNode | null;
+    imports: ApiNode[];
+    all_modules: ApiNode[];
+}
+
 export const api = {
+    /**
+     * Get entry point and its imports for initial flow display
+     */
+    async getEntryPoint(): Promise<{
+        entryPoint: GraphNode | null;
+        imports: GraphNode[];
+        allModules: GraphNode[];
+    }> {
+        return dedupedFetch('entry-point', async () => {
+            const response = await fetchJson<EntryPointResponse>(`${API_BASE}/graph/entry-point`);
+            return {
+                entryPoint: response.entry_point ? apiNodeToGraphNode(response.entry_point) : null,
+                imports: response.imports.map((n) => apiNodeToGraphNode(n)),
+                allModules: response.all_modules.map((n) => apiNodeToGraphNode(n)),
+            };
+        });
+    },
+
     /**
      * Get root-level modules
      */

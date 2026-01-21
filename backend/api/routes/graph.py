@@ -157,6 +157,89 @@ async def get_root_nodes(
         raise HTTPException(status_code=500, detail=str(e))
 
 
+class EntryPointResponse(BaseModel):
+    """Response for entry point detection."""
+    
+    entry_point: NodeResponse | None = None
+    imports: list[NodeResponse] = []
+    all_modules: list[NodeResponse] = []
+
+
+@router.get("/entry-point", response_model=EntryPointResponse)
+async def get_entry_point(
+    client: Neo4jClient = Depends(get_client),
+) -> EntryPointResponse:
+    """
+    Get the entry point module and its direct imports.
+    
+    Looks for common entry points: app.py, main.py, __main__.py, run.py
+    Returns the entry point with its imports for initial flow display.
+    Target latency: <100ms
+    """
+    logger.debug("detecting_entry_point")
+    
+    # Priority order for entry points
+    entry_point_names = ["app", "main", "__main__", "run", "server", "wsgi", "asgi"]
+    
+    try:
+        all_modules = await client.get_root_nodes()
+        
+        # Convert to NodeResponse
+        module_responses = [
+            NodeResponse(
+                id=r["id"],
+                name=r["name"],
+                type=r["type"],
+                qualified_name=r.get("qualified_name"),
+                docstring=r.get("docstring"),
+                child_count=r.get("child_count", 0),
+            )
+            for r in all_modules
+        ]
+        
+        # Find entry point by priority
+        entry_point = None
+        for name in entry_point_names:
+            for module in module_responses:
+                if module.name == name:
+                    entry_point = module
+                    break
+            if entry_point:
+                break
+        
+        # If no common entry point, use the one with most connections or children
+        if not entry_point and module_responses:
+            # Sort by child count (most complex first) as a heuristic
+            sorted_modules = sorted(module_responses, key=lambda m: m.child_count, reverse=True)
+            entry_point = sorted_modules[0]
+        
+        # Get imports/connections for the entry point
+        imports = []
+        if entry_point:
+            try:
+                refs = await client.get_node_references(entry_point.id)
+                for ref in refs:
+                    if ref.get("rel_type") in ("IMPORTS", "CALLS"):
+                        imports.append(NodeResponse(
+                            id=ref["id"],
+                            name=ref["name"],
+                            type=ref["type"],
+                            qualified_name=ref.get("qualified_name"),
+                        ))
+            except Exception:
+                pass  # No references, that's fine
+        
+        return EntryPointResponse(
+            entry_point=entry_point,
+            imports=imports,
+            all_modules=module_responses,
+        )
+        
+    except Exception as e:
+        logger.error("get_entry_point_failed", error=str(e))
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @router.get("/node/{node_id}", response_model=NodeResponse)
 async def get_node(
     node_id: str,
