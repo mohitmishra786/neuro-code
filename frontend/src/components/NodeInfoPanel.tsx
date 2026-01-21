@@ -28,7 +28,7 @@ export function NodeInfoPanel() {
             <div className="node-info-header">
                 <span
                     className="node-info-type"
-                    style={{ backgroundColor: NODE_COLORS[selectedNode.type] }}
+                    style={{ backgroundColor: NODE_COLORS[selectedNode.type]?.base || '#6b7280' }}
                 >
                     {selectedNode.type}
                 </span>

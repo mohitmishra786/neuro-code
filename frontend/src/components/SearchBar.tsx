@@ -92,7 +92,7 @@ export function SearchBar() {
                         >
                             <span
                                 className="search-result-type"
-                                style={{ backgroundColor: NODE_COLORS[result.type] }}
+                                style={{ backgroundColor: NODE_COLORS[result.type]?.base || '#6b7280' }}
                             >
                                 {result.type.charAt(0).toUpperCase()}
                             </span>

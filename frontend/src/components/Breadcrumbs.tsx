@@ -34,7 +34,7 @@ export function Breadcrumbs() {
                     >
                         <span
                             className="breadcrumb-type"
-                            style={{ backgroundColor: NODE_COLORS[item.type] }}
+                            style={{ backgroundColor: NODE_COLORS[item.type]?.base || '#6b7280' }}
                         />
                         {item.name}
                     </button>
@@ -47,7 +47,7 @@ export function Breadcrumbs() {
                     <span className="breadcrumb-item breadcrumb-current">
                         <span
                             className="breadcrumb-type"
-                            style={{ backgroundColor: NODE_COLORS[selectedNode.type] }}
+                            style={{ backgroundColor: NODE_COLORS[selectedNode.type]?.base || '#6b7280' }}
                         />
                         {selectedNode.name}
                     </span>

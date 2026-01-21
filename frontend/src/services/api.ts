@@ -120,7 +120,8 @@ export const api = {
      */
     async getNode(nodeId: string): Promise<GraphNode> {
         return dedupedFetch(`node:${nodeId}`, async () => {
-            const node = await fetchJson<ApiNode>(`${API_BASE}/graph/node/${nodeId}`);
+            const encodedId = encodeURIComponent(nodeId);
+            const node = await fetchJson<ApiNode>(`${API_BASE}/graph/node/${encodedId}`);
             return apiNodeToGraphNode(node);
         });
     },
@@ -130,8 +131,9 @@ export const api = {
      */
     async getNodeChildren(nodeId: string, limit = 1000): Promise<GraphNode[]> {
         return dedupedFetch(`children:${nodeId}`, async () => {
+            const encodedId = encodeURIComponent(nodeId);
             const response = await fetchJson<ChildrenResponse>(
-                `${API_BASE}/graph/node/${nodeId}/children?limit=${limit}`,
+                `${API_BASE}/graph/node/${encodedId}/children?limit=${limit}`,
             );
             return response.children.map((n) => apiNodeToGraphNode(n));
         });
@@ -142,8 +144,9 @@ export const api = {
      */
     async getNodeAncestors(nodeId: string): Promise<GraphNode[]> {
         return dedupedFetch(`ancestors:${nodeId}`, async () => {
+            const encodedId = encodeURIComponent(nodeId);
             const response = await fetchJson<AncestorsResponse>(
-                `${API_BASE}/graph/node/${nodeId}/ancestors`,
+                `${API_BASE}/graph/node/${encodedId}/ancestors`,
             );
             return response.ancestors.map((n) => apiNodeToGraphNode(n));
         });
@@ -155,6 +158,34 @@ export const api = {
     async getNodeReferences(nodeId: string): Promise<ReferencesResponse> {
         return dedupedFetch(`references:${nodeId}`, async () => {
             return fetchJson<ReferencesResponse>(`${API_BASE}/graph/node/${nodeId}/references`);
+        });
+    },
+
+    /**
+     * Expand a node to get children + outgoing connections (for incremental loading)
+     */
+    async expandNode(nodeId: string): Promise<{
+        node: GraphNode | null;
+        children: GraphNode[];
+        outgoing: { id: string; name: string; type: string; edgeType: string }[];
+    }> {
+        return dedupedFetch(`expand:${nodeId}`, async () => {
+            const encodedId = encodeURIComponent(nodeId);
+            const response = await fetchJson<{
+                node: ApiNode | null;
+                children: ApiNode[];
+                outgoing: { id: string; name: string; type: string; edge_type: string }[];
+            }>(`${API_BASE}/graph/expand/${encodedId}`);
+            return {
+                node: response.node ? apiNodeToGraphNode(response.node) : null,
+                children: response.children.map((n) => apiNodeToGraphNode(n)),
+                outgoing: response.outgoing.map((o) => ({
+                    id: o.id,
+                    name: o.name,
+                    type: o.type,
+                    edgeType: o.edge_type,
+                })),
+            };
         });
     },
 

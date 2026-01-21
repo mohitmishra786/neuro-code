@@ -17,6 +17,8 @@
     "dependencies": {
         "@react-sigma/core": "^4.0.3",
         "@react-sigma/layout-forceatlas2": "^4.0.3",
+        "@types/dagre": "^0.7.53",
+        "dagre": "^0.8.5",
         "fuse.js": "^7.0.0",
         "graphology": "^0.25.4",
         "graphology-layout-forceatlas2": "^0.10.1",

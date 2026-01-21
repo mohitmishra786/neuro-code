@@ -19,15 +19,15 @@ export function useGraphData(options: UseGraphDataOptions = {}) {
     const nodes = useGraphStore((s) => s.nodes);
     const isLoading = useGraphStore((s) => s.isLoading);
     const error = useGraphStore((s) => s.error);
-    const loadRootNodes = useGraphStore((s) => s.loadRootNodes);
+    const loadEntryPoint = useGraphStore((s) => s.loadEntryPoint);
     const expandNode = useGraphStore((s) => s.expandNode);
 
-    // Auto-load root nodes on mount
+    // Auto-load entry point on mount
     useEffect(() => {
         if (autoLoad && nodes.size === 0) {
-            loadRootNodes();
+            loadEntryPoint();
         }
-    }, [autoLoad, nodes.size, loadRootNodes]);
+    }, [autoLoad, nodes.size, loadEntryPoint]);
 
     const getNode = useCallback(
         async (nodeId: string): Promise<GraphNode | null> => {
@@ -69,7 +69,7 @@ export function useGraphData(options: UseGraphDataOptions = {}) {
         nodes,
         isLoading,
         error,
-        loadRootNodes,
+        loadEntryPoint,
         expandNode,
         getNode,
         getChildren,
