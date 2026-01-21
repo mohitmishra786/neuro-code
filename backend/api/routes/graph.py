@@ -240,6 +240,96 @@ async def get_entry_point(
         raise HTTPException(status_code=500, detail=str(e))
 
 
+class ConnectionNode(BaseModel):
+    """Node connected via CALLS/IMPORTS/INHERITS."""
+    
+    id: str
+    name: str
+    type: str
+    qualified_name: str | None = None
+    edge_type: str
+    line_number: int | None = None
+
+
+class ExpandResponse(BaseModel):
+    """Response for node expansion (incremental loading)."""
+    
+    node: NodeResponse | None = None
+    children: list[NodeResponse] = []
+    outgoing: list[ConnectionNode] = []
+
+
+@router.get("/expand/{node_id:path}", response_model=ExpandResponse)
+async def expand_node(
+    node_id: str,
+    client: Neo4jClient = Depends(get_client),
+) -> ExpandResponse:
+    """
+    Expand a node to get its children and outgoing connections.
+    
+    Used for incremental graph loading - returns only direct connections.
+    Target latency: <50ms
+    """
+    logger.debug("expanding_node", node_id=node_id)
+    
+    try:
+        result = await client.expand_node(node_id)
+        
+        if not result["node"]:
+            raise HTTPException(status_code=404, detail="Node not found")
+        
+        node_data = result["node"]
+        labels = node_data.get("labels", [])
+        node_type = "module" if "Module" in labels else \
+                    "class" if "Class" in labels else \
+                    "function" if "Function" in labels else \
+                    "variable" if "Variable" in labels else "unknown"
+        
+        node = NodeResponse(
+            id=node_data.get("id", ""),
+            name=node_data.get("name", ""),
+            type=node_type,
+            qualified_name=node_data.get("qualified_name"),
+            line_number=node_data.get("line_number"),
+            docstring=node_data.get("docstring"),
+            child_count=len(result["children"]),
+            is_async=node_data.get("is_async"),
+            complexity=node_data.get("complexity"),
+        )
+        
+        children = [
+            NodeResponse(
+                id=c["id"],
+                name=c["name"],
+                type=c["type"].lower() if c["type"] else "unknown",
+                qualified_name=c.get("qualified_name"),
+                line_number=c.get("line_number"),
+                docstring=c.get("docstring"),
+                is_async=c.get("is_async"),
+                complexity=c.get("complexity"),
+            )
+            for c in result["children"]
+        ]
+        
+        outgoing = [
+            ConnectionNode(
+                id=o["target_id"],
+                name=o["target_name"],
+                type=o["target_type"].lower() if o["target_type"] else "unknown",
+                edge_type=o["edge_type"],
+            )
+            for o in result["outgoing"]
+        ]
+        
+        return ExpandResponse(node=node, children=children, outgoing=outgoing)
+    
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error("expand_node_failed", node_id=node_id, error=str(e))
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @router.get("/node/{node_id}", response_model=NodeResponse)
 async def get_node(
     node_id: str,

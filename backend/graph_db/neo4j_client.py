@@ -669,3 +669,112 @@ class Neo4jClient(LoggerMixin):
         SET n.hash = $hash
         """
         await self.execute_write(query, {"node_id": node_id, "hash": new_hash})
+
+    async def expand_node(self, node_id: str) -> dict[str, Any]:
+        """
+        Get a node with all its outgoing connections for incremental loading.
+        
+        Returns the node, its direct children (via CONTAINS), 
+        and outgoing edges (CALLS, IMPORTS, INHERITS).
+        
+        Args:
+            node_id: Hierarchical ID of the node to expand
+        
+        Returns:
+            Dictionary containing:
+            - node: The expanded node
+            - children: Direct child nodes (via CONTAINS)
+            - outgoing: Nodes connected via CALLS/IMPORTS/INHERITS
+            - edges: Edge details
+        """
+        query = """
+        MATCH (n {id: $node_id})
+        WITH n, labels(n) as node_labels
+        
+        // Get children via CONTAINS
+        OPTIONAL MATCH (n)-[:CONTAINS]->(child)
+        WITH n, node_labels, collect({
+            id: child.id,
+            name: child.name,
+            type: head(labels(child)),
+            qualified_name: child.qualified_name,
+            line_number: child.line_number,
+            docstring: child.docstring,
+            is_async: child.is_async,
+            complexity: child.complexity
+        }) as children
+        
+        // Get outgoing relationships (CALLS, IMPORTS, INHERITS)
+        OPTIONAL MATCH (n)-[r]->(target)
+        WHERE type(r) IN ['CALLS', 'IMPORTS', 'INHERITS', 'INSTANTIATES']
+        WITH n, node_labels, children, collect({
+            target_id: target.id,
+            target_name: target.name,
+            target_type: head(labels(target)),
+            edge_type: type(r),
+            properties: properties(r)
+        }) as outgoing
+        
+        RETURN n as node,
+               node_labels as labels,
+               [c IN children WHERE c.id IS NOT NULL] as children,
+               [o IN outgoing WHERE o.target_id IS NOT NULL] as outgoing
+        """
+        result = await self.execute_query(query, {"node_id": node_id})
+        
+        if not result:
+            return {"node": None, "children": [], "outgoing": [], "edges": []}
+        
+        record = result[0]
+        node_data = dict(record["node"]) if record["node"] else {}
+        node_data["labels"] = record["labels"]
+        
+        return {
+            "node": node_data,
+            "children": record["children"],
+            "outgoing": record["outgoing"],
+        }
+    
+    async def get_node_connections(self, node_id: str) -> list[dict[str, Any]]:
+        """
+        Get all nodes that this node connects to (outgoing) and are connected from (incoming).
+        
+        Excludes CONTAINS relationships.
+        
+        Args:
+            node_id: ID of the node
+        
+        Returns:
+            List of connected nodes with edge information
+        """
+        query = """
+        MATCH (n {id: $node_id})
+        OPTIONAL MATCH (n)-[out]->(target)
+        WHERE NOT type(out) IN ['CONTAINS']
+        WITH n, collect({
+            id: target.id,
+            name: target.name,
+            type: head(labels(target)),
+            qualified_name: target.qualified_name,
+            edge_type: type(out),
+            direction: 'outgoing',
+            line_number: target.line_number
+        }) as outgoing
+        
+        OPTIONAL MATCH (source)-[inc]->(n)
+        WHERE NOT type(inc) IN ['CONTAINS']
+        WITH outgoing, collect({
+            id: source.id,
+            name: source.name,
+            type: head(labels(source)),
+            qualified_name: source.qualified_name,
+            edge_type: type(inc),
+            direction: 'incoming',
+            line_number: source.line_number
+        }) as incoming
+        
+        RETURN [c IN outgoing + incoming WHERE c.id IS NOT NULL] as connections
+        """
+        result = await self.execute_query(query, {"node_id": node_id})
+        return result[0]["connections"] if result else []
+

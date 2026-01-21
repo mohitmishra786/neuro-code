@@ -2,6 +2,7 @@
 NeuroCode Parser Data Models.
 
 Defines the data structures for parsed code elements.
+Uses hierarchical string IDs for deterministic navigation.
 Requires Python 3.11+.
 """
 
@@ -9,7 +10,6 @@ from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
 from typing import Any
-from uuid import UUID, uuid4
 
 
 class NodeType(str, Enum):
@@ -38,6 +38,8 @@ class RelationshipType(str, Enum):
     USES = "uses"
     RETURNS = "returns"
     RAISES = "raises"
+    READS = "reads"
+    WRITES = "writes"
 
 
 class AccessType(str, Enum):
@@ -48,14 +50,33 @@ class AccessType(str, Enum):
     BOTH = "both"
 
 
+def generate_node_id(file_path: Path | str, *scope_parts: str) -> str:
+    """
+    Generate a hierarchical node ID.
+    
+    Format: file_path::scope1::scope2::...
+    
+    Examples:
+        - src/vaak/core/math_engine.py
+        - src/vaak/core/math_engine.py::ValidatorClass
+        - src/vaak/core/math_engine.py::ValidatorClass::validate_output
+    """
+    base = str(file_path) if file_path else ""
+    if scope_parts:
+        return f"{base}::{'::'.join(scope_parts)}"
+    return base
+
+
 @dataclass(slots=True)
 class SourceLocation:
-    """Source code location information."""
+    """Source code location information with byte offsets."""
 
     line: int
     column: int
     end_line: int
     end_column: int
+    start_byte: int = 0
+    end_byte: int = 0
 
     @property
     def as_dict(self) -> dict[str, int]:
@@ -65,6 +86,8 @@ class SourceLocation:
             "column": self.column,
             "end_line": self.end_line,
             "end_column": self.end_column,
+            "start_byte": self.start_byte,
+            "end_byte": self.end_byte,
         }
 
 
@@ -110,13 +133,15 @@ class DecoratorInfo:
 class ImportInfo:
     """Import statement information."""
 
-    id: UUID = field(default_factory=uuid4)
+    id: str = ""  # Hierarchical ID: file_path::import_module
     module_name: str = ""
     imported_names: list[str] = field(default_factory=list)
     aliases: dict[str, str] = field(default_factory=dict)
     is_relative: bool = False
     relative_level: int = 0
     location: SourceLocation | None = None
+    # Resolved target module path (set during linking)
+    resolved_module: str = ""
 
     @property
     def is_from_import(self) -> bool:
@@ -126,14 +151,14 @@ class ImportInfo:
     @property
     def absolute_module(self) -> str:
         """Get the absolute module path (without relative dots)."""
-        return self.module_name
+        return self.resolved_module or self.module_name
 
 
 @dataclass(slots=True)
 class VariableInfo:
     """Variable information."""
 
-    id: UUID = field(default_factory=uuid4)
+    id: str = ""  # Hierarchical ID: file_path::class?::function?::var_name
     name: str = ""
     type_hint: str | None = None
     initial_value: str | None = None
@@ -145,7 +170,7 @@ class VariableInfo:
     def as_dict(self) -> dict[str, Any]:
         """Convert to dictionary for serialization."""
         return {
-            "id": str(self.id),
+            "id": self.id,
             "name": self.name,
             "type_hint": self.type_hint,
             "initial_value": self.initial_value,
@@ -156,10 +181,21 @@ class VariableInfo:
 
 
 @dataclass(slots=True)
+class SymbolReference:
+    """A reference to a symbol (call, read, write)."""
+    
+    name: str  # The symbol name as written in code
+    ref_type: str  # "call", "read", "write", "import"
+    location: SourceLocation | None = None
+    resolved_id: str = ""  # Resolved target ID (set during linking)
+    context_id: str = ""  # ID of containing function/class
+
+
+@dataclass(slots=True)
 class FunctionInfo:
     """Function or method information."""
 
-    id: UUID = field(default_factory=uuid4)
+    id: str = ""  # Hierarchical ID: file_path::class?::function_name
     name: str = ""
     qualified_name: str = ""
     parameters: list[ParameterInfo] = field(default_factory=list)
@@ -175,7 +211,10 @@ class FunctionInfo:
     complexity: int = 1  # Cyclomatic complexity
     location: SourceLocation | None = None
     variables: list[VariableInfo] = field(default_factory=list)
-    calls: list[str] = field(default_factory=list)  # Qualified names of called functions
+    # Raw call names as they appear in source (pre-resolution)
+    calls: list[str] = field(default_factory=list)
+    # Detailed references with resolution info
+    references: list[SymbolReference] = field(default_factory=list)
     body_hash: str = ""  # Hash of function body for change detection
 
     @property
@@ -192,7 +231,7 @@ class FunctionInfo:
     def as_dict(self) -> dict[str, Any]:
         """Convert to dictionary for serialization."""
         return {
-            "id": str(self.id),
+            "id": self.id,
             "name": self.name,
             "qualified_name": self.qualified_name,
             "parameters": [p.as_dict for p in self.parameters],
@@ -203,6 +242,8 @@ class FunctionInfo:
             "is_method": self.is_method,
             "complexity": self.complexity,
             "line_number": self.location.line if self.location else None,
+            "start_byte": self.location.start_byte if self.location else None,
+            "end_byte": self.location.end_byte if self.location else None,
         }
 
 
@@ -210,7 +251,7 @@ class FunctionInfo:
 class ClassInfo:
     """Class information."""
 
-    id: UUID = field(default_factory=uuid4)
+    id: str = ""  # Hierarchical ID: file_path::class_name
     name: str = ""
     qualified_name: str = ""
     bases: list[str] = field(default_factory=list)
@@ -222,6 +263,8 @@ class ClassInfo:
     instance_variables: list[VariableInfo] = field(default_factory=list)
     nested_classes: list["ClassInfo"] = field(default_factory=list)
     location: SourceLocation | None = None
+    # Resolved base class IDs (set during linking)
+    resolved_bases: list[str] = field(default_factory=list)
 
     @property
     def all_variables(self) -> list[VariableInfo]:
@@ -232,7 +275,7 @@ class ClassInfo:
     def as_dict(self) -> dict[str, Any]:
         """Convert to dictionary for serialization."""
         return {
-            "id": str(self.id),
+            "id": self.id,
             "name": self.name,
             "qualified_name": self.qualified_name,
             "bases": self.bases,
@@ -240,6 +283,8 @@ class ClassInfo:
             "is_abstract": self.is_abstract,
             "method_count": len(self.methods),
             "line_number": self.location.line if self.location else None,
+            "start_byte": self.location.start_byte if self.location else None,
+            "end_byte": self.location.end_byte if self.location else None,
         }
 
 
@@ -247,7 +292,7 @@ class ClassInfo:
 class ModuleInfo:
     """Module (file) information."""
 
-    id: UUID = field(default_factory=uuid4)
+    id: str = ""  # Hierarchical ID: relative file path from project root
     path: Path = field(default_factory=Path)
     name: str = ""
     package: str = ""
@@ -270,7 +315,7 @@ class ModuleInfo:
     def as_dict(self) -> dict[str, Any]:
         """Convert to dictionary for serialization."""
         return {
-            "id": str(self.id),
+            "id": self.id,
             "path": str(self.path),
             "name": self.name,
             "package": self.package,
@@ -287,8 +332,8 @@ class ModuleInfo:
 class Relationship:
     """Relationship between two nodes."""
 
-    source_id: UUID
-    target_id: UUID
+    source_id: str  # Hierarchical ID
+    target_id: str  # Hierarchical ID
     relationship_type: RelationshipType
     properties: dict[str, Any] = field(default_factory=dict)
 
@@ -296,8 +341,8 @@ class Relationship:
     def as_dict(self) -> dict[str, Any]:
         """Convert to dictionary for serialization."""
         return {
-            "source_id": str(self.source_id),
-            "target_id": str(self.target_id),
+            "source_id": self.source_id,
+            "target_id": self.target_id,
             "type": self.relationship_type.value,
             "properties": self.properties,
         }
