@@ -15,6 +15,7 @@ from typing import Any
 class NodeType(str, Enum):
     """Types of nodes in the code graph."""
 
+    PACKAGE = "package"
     MODULE = "module"
     CLASS = "class"
     FUNCTION = "function"
@@ -285,6 +286,30 @@ class ClassInfo:
             "line_number": self.location.line if self.location else None,
             "start_byte": self.location.start_byte if self.location else None,
             "end_byte": self.location.end_byte if self.location else None,
+        }
+
+@dataclass(slots=True)
+class PackageInfo:
+    """Package (directory) information for hierarchical structure."""
+
+    id: str = ""  # Hierarchical ID: relative directory path
+    path: Path = field(default_factory=Path)
+    name: str = ""  # Directory name
+    qualified_name: str = ""  # Python dotted name (e.g., vaak.integrity)
+    parent_id: str = ""  # Parent package ID (empty for root)
+    docstring: str | None = None  # From __init__.py if present
+    child_packages: list[str] = field(default_factory=list)  # Child package IDs
+    child_modules: list[str] = field(default_factory=list)  # Child module IDs
+
+    @property
+    def as_dict(self) -> dict[str, Any]:
+        """Convert to dictionary for serialization."""
+        return {
+            "id": self.id,
+            "name": self.name,
+            "qualified_name": self.qualified_name,
+            "parent_id": self.parent_id,
+            "child_count": len(self.child_packages) + len(self.child_modules),
         }
 
 

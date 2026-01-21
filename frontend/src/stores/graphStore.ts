@@ -190,42 +190,55 @@ export const useGraphStore = create<GraphState>()(
                         });
                     }
 
-                    // Add imports
-                    imports.forEach((imp) => {
-                        const impSize = getNodeSize(imp.type, imp.childCount);
-                        const enrichedImport: GraphNode = {
-                            ...imp,
+                    // Add ALL modules (not just imports) for 100% codebase visibility
+                    // This ensures validators.py and all other modules are visible
+                    allModules.forEach((mod) => {
+                        // Skip if already added (entry point)
+                        if (mod.id === entryPoint.id || nodes.has(mod.id)) return;
+
+                        const modSize = getNodeSize(mod.type, mod.childCount);
+                        const enrichedMod: GraphNode = {
+                            ...mod,
                             x: 0,
                             y: 0,
-                            size: impSize,
-                            color: getNodeColor(imp.type),
-                            label: getDisplayName(imp.id, imp.name),
+                            size: modSize,
+                            color: getNodeColor(mod.type),
+                            label: getDisplayName(mod.id, mod.name),
                         };
 
-                        nodes.set(imp.id, enrichedImport);
+                        nodes.set(mod.id, enrichedMod);
 
-                        if (!graph.hasNode(imp.id)) {
-                            graph.addNode(imp.id, {
+                        if (!graph.hasNode(mod.id)) {
+                            graph.addNode(mod.id, {
                                 x: 0,
                                 y: 0,
-                                size: impSize,
-                                color: enrichedImport.color,
-                                label: enrichedImport.label,
-                                nodeType: enrichedImport.type,
+                                size: modSize,
+                                color: enrichedMod.color,
+                                label: enrichedMod.label,
+                                nodeType: enrichedMod.type,
                             });
                         }
 
-                        // Add edge
-                        const edgeId = `${entryPoint.id}->import->${imp.id}`;
-                        try {
-                            if (!graph.hasEdge(edgeId) && !graph.hasEdge(entryPoint.id, imp.id)) {
-                                graph.addEdge(entryPoint.id, imp.id, {
-                                    id: edgeId,
-                                    edgeType: 'IMPORTS',
-                                });
+                        // Group modules by package - connect siblings via __init__.py
+                        const parts = mod.id.split('/');
+                        if (parts.length > 1) {
+                            const parentDir = parts.slice(0, -1).join('/');
+                            const parentInitId = `${parentDir}/__init__.py`;
+
+                            // Connect to parent __init__.py if it exists
+                            if (graph.hasNode(parentInitId) && mod.id !== parentInitId) {
+                                const edgeId = `${parentInitId}->contains->${mod.id}`;
+                                try {
+                                    if (!graph.hasEdge(edgeId)) {
+                                        graph.addEdge(parentInitId, mod.id, {
+                                            id: edgeId,
+                                            edgeType: 'CONTAINS',
+                                        });
+                                    }
+                                } catch {
+                                    // Edge exists
+                                }
                             }
-                        } catch {
-                            // Edge already exists
                         }
                     });
 
