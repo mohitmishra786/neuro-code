@@ -13,6 +13,7 @@ from typing import Any
 class NodeLabel(str, Enum):
     """Node labels in the graph."""
 
+    PACKAGE = "Package"
     MODULE = "Module"
     CLASS = "Class"
     FUNCTION = "Function"
@@ -76,6 +77,18 @@ class GraphSchema:
 
     # Node type definitions
     NODES: dict[NodeLabel, NodeDefinition] = {
+        NodeLabel.PACKAGE: NodeDefinition(
+            label=NodeLabel.PACKAGE,
+            description="Python package (directory with __init__.py)",
+            properties=(
+                PropertyDefinition("id", "string", required=True, unique=True, indexed=True),
+                PropertyDefinition("path", "string", required=True, indexed=True),
+                PropertyDefinition("name", "string", required=True, indexed=True),
+                PropertyDefinition("qualified_name", "string", required=True, indexed=True),
+                PropertyDefinition("parent_id", "string", indexed=True),
+                PropertyDefinition("docstring", "string"),
+            ),
+        ),
         NodeLabel.MODULE: NodeDefinition(
             label=NodeLabel.MODULE,
             description="Python module (file)",
@@ -147,8 +160,8 @@ class GraphSchema:
         RelationshipLabel.CONTAINS: RelationshipDefinition(
             label=RelationshipLabel.CONTAINS,
             description="Parent contains child",
-            source_labels=(NodeLabel.MODULE, NodeLabel.CLASS, NodeLabel.FUNCTION),
-            target_labels=(NodeLabel.CLASS, NodeLabel.FUNCTION, NodeLabel.VARIABLE),
+            source_labels=(NodeLabel.PACKAGE, NodeLabel.MODULE, NodeLabel.CLASS, NodeLabel.FUNCTION),
+            target_labels=(NodeLabel.PACKAGE, NodeLabel.MODULE, NodeLabel.CLASS, NodeLabel.FUNCTION, NodeLabel.VARIABLE),
             properties=(
                 PropertyDefinition("weight", "int", default=1),
                 PropertyDefinition("order", "int"),
@@ -249,7 +262,7 @@ class GraphSchema:
         # Full-text search index for names
         statements.append(
             "CREATE FULLTEXT INDEX node_name_search IF NOT EXISTS "
-            "FOR (n:Module|Class|Function|Variable) ON EACH [n.name, n.qualified_name]"
+            "FOR (n:Package|Module|Class|Function|Variable) ON EACH [n.name, n.qualified_name]"
         )
 
         return statements

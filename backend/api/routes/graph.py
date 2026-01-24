@@ -280,7 +280,8 @@ async def expand_node(
         
         node_data = result["node"]
         labels = node_data.get("labels", [])
-        node_type = "module" if "Module" in labels else \
+        node_type = "package" if "Package" in labels else \
+                    "module" if "Module" in labels else \
                     "class" if "Class" in labels else \
                     "function" if "Function" in labels else \
                     "variable" if "Variable" in labels else "unknown"
@@ -350,7 +351,9 @@ async def get_node(
 
         labels = result.get("labels", [])
         node_type = "unknown"
-        if "Module" in labels:
+        if "Package" in labels:
+            node_type = "package"
+        elif "Module" in labels:
             node_type = "module"
         elif "Class" in labels:
             node_type = "class"
@@ -380,6 +383,17 @@ async def get_node(
     except Exception as e:
         logger.error("get_node_failed", node_id=node_id, error=str(e))
         raise HTTPException(status_code=500, detail=str(e))
+
+
+class PaginatedChildrenResponse(BaseModel):
+    """Response model for paginated node children."""
+
+    parent_id: str
+    children: list[NodeResponse]
+    total: int
+    has_more: bool
+    offset: int
+    limit: int
 
 
 @router.get("/node/{node_id}/children", response_model=ChildrenResponse)
@@ -423,6 +437,54 @@ async def get_node_children(
 
     except Exception as e:
         logger.error("get_children_failed", node_id=node_id, error=str(e))
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/node/{node_id}/children/paginated", response_model=PaginatedChildrenResponse)
+async def get_node_children_paginated(
+    node_id: str,
+    limit: int = Query(default=50, ge=1, le=200),
+    offset: int = Query(default=0, ge=0),
+    type_filter: str | None = Query(default=None, description="Filter by type: package, module, class, function, variable"),
+    client: Neo4jClient = Depends(get_client),
+) -> PaginatedChildrenResponse:
+    """
+    Get paginated children of a node.
+
+    Supports filtering by node type and pagination for large hierarchies.
+    Target latency: <50ms
+    """
+    logger.debug("fetching_paginated_children", node_id=node_id, limit=limit, offset=offset)
+
+    try:
+        result = await client.get_children_paginated(node_id, limit=limit, offset=offset, type_filter=type_filter)
+        children = [
+            NodeResponse(
+                id=r["id"],
+                name=r["name"],
+                type=r["type"],
+                qualified_name=r.get("qualified_name"),
+                line_number=r.get("line_number"),
+                docstring=r.get("docstring"),
+                child_count=r.get("child_count", 0),
+                is_async=r.get("is_async"),
+                is_method=r.get("is_method"),
+                is_abstract=r.get("is_abstract"),
+                complexity=r.get("complexity"),
+            )
+            for r in result["children"]
+        ]
+        return PaginatedChildrenResponse(
+            parent_id=node_id,
+            children=children,
+            total=result["total"],
+            has_more=result["has_more"],
+            offset=offset,
+            limit=limit,
+        )
+
+    except Exception as e:
+        logger.error("get_paginated_children_failed", node_id=node_id, error=str(e))
         raise HTTPException(status_code=500, detail=str(e))
 
 

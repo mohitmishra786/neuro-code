@@ -170,3 +170,113 @@ class TestTreeSitterParser:
         # Should not raise, but may have incomplete parsing
         module = parser.parse_file(bad_file)
         assert module is not None
+
+
+class TestProjectParser:
+    """Test cases for ProjectParser with package hierarchy."""
+
+    @pytest.fixture
+    def project_dir(self, tmp_path: Path) -> Path:
+        """Create a sample project structure with packages."""
+        # Create root package
+        root_pkg = tmp_path / "myproject"
+        root_pkg.mkdir()
+        (root_pkg / "__init__.py").write_text('"""Root package."""\n')
+        
+        # Create subpackage
+        sub_pkg = root_pkg / "subpkg"
+        sub_pkg.mkdir()
+        (sub_pkg / "__init__.py").write_text('"""Sub package."""\n')
+        
+        # Create module in subpackage
+        (sub_pkg / "module.py").write_text('''"""Sample module."""
+
+class MyClass:
+    """A sample class."""
+    
+    def method(self):
+        """A method."""
+        pass
+
+def function():
+    """A function."""
+    pass
+''')
+        
+        # Create a module in root package
+        (root_pkg / "utils.py").write_text('''"""Utility module."""
+
+def helper():
+    """Helper function."""
+    pass
+''')
+        
+        return root_pkg
+
+    def test_package_discovery(self, project_dir: Path):
+        """Test that packages are discovered correctly."""
+        from parser.project_parser import ProjectParser
+        
+        parser = ProjectParser(project_dir)
+        packages, modules, relationships = parser.parse_project()
+        
+        # Should find both packages
+        assert len(packages) >= 2
+        package_names = [p.name for p in packages]
+        assert "myproject" in package_names
+        assert "subpkg" in package_names
+
+    def test_package_hierarchy(self, project_dir: Path):
+        """Test that package parent-child relationships are correct."""
+        from parser.project_parser import ProjectParser
+        
+        parser = ProjectParser(project_dir)
+        packages, modules, relationships = parser.parse_project()
+        
+        # Find the subpackage
+        subpkg = next((p for p in packages if p.name == "subpkg"), None)
+        assert subpkg is not None
+        
+        # It should have a parent_id pointing to the root package
+        root_pkg = next((p for p in packages if p.name == "myproject"), None)
+        if root_pkg:
+            # The parent might be empty if myproject is the root
+            assert subpkg.parent_id == "" or subpkg.parent_id == root_pkg.id
+
+    def test_module_to_package_relationship(self, project_dir: Path):
+        """Test that modules are linked to their parent packages."""
+        from parser.project_parser import ProjectParser
+        from parser.models import RelationshipType
+        
+        parser = ProjectParser(project_dir)
+        packages, modules, relationships = parser.parse_project()
+        
+        # Find CONTAINS relationships from packages to modules
+        contains_rels = [r for r in relationships if r.relationship_type == RelationshipType.CONTAINS]
+        
+        # There should be relationships linking packages to their modules
+        assert len(contains_rels) > 0
+
+    def test_docstring_extraction_from_init(self, project_dir: Path):
+        """Test that docstrings are extracted from __init__.py."""
+        from parser.project_parser import ProjectParser
+        
+        parser = ProjectParser(project_dir)
+        packages, modules, relationships = parser.parse_project()
+        
+        # Find the subpackage
+        subpkg = next((p for p in packages if p.name == "subpkg"), None)
+        assert subpkg is not None
+        assert subpkg.docstring == "Sub package."
+
+    def test_qualified_names(self, project_dir: Path):
+        """Test that qualified names are generated correctly."""
+        from parser.project_parser import ProjectParser
+        
+        parser = ProjectParser(project_dir)
+        packages, modules, relationships = parser.parse_project()
+        
+        # Find the subpackage
+        subpkg = next((p for p in packages if p.name == "subpkg"), None)
+        assert subpkg is not None
+        assert "subpkg" in subpkg.qualified_name

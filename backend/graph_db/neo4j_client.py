@@ -16,7 +16,7 @@ from neo4j import AsyncGraphDatabase, AsyncDriver, AsyncSession, AsyncTransactio
 from neo4j.exceptions import ServiceUnavailable, SessionExpired, TransientError
 
 from graph_db.schema import GraphSchema, NodeLabel, RelationshipLabel
-from parser.models import ModuleInfo, ClassInfo, FunctionInfo, VariableInfo, Relationship
+from parser.models import ModuleInfo, ClassInfo, FunctionInfo, VariableInfo, PackageInfo, Relationship
 from utils.config import get_settings
 from utils.logger import LoggerMixin
 
@@ -191,6 +191,36 @@ class Neo4jClient(LoggerMixin):
         self.log.info("database_cleared")
 
     # Node operations
+
+    async def create_package(self, package: PackageInfo) -> str:
+        """
+        Create a package node in the graph.
+
+        Args:
+            package: PackageInfo to create
+
+        Returns:
+            Node ID
+        """
+        query = """
+        MERGE (p:Package {id: $id})
+        SET p.path = $path,
+            p.name = $name,
+            p.qualified_name = $qualified_name,
+            p.parent_id = $parent_id,
+            p.docstring = $docstring
+        RETURN p.id as id
+        """
+        params = {
+            "id": package.id,
+            "path": str(package.path),
+            "name": package.name,
+            "qualified_name": package.qualified_name,
+            "parent_id": package.parent_id,
+            "docstring": package.docstring,
+        }
+        result = await self.execute_query(query, params)
+        return result[0]["id"] if result else package.id
 
     async def create_module(self, module: ModuleInfo) -> str:
         """
@@ -378,6 +408,22 @@ class Neo4jClient(LoggerMixin):
 
     # Bulk operations
 
+    async def bulk_create_packages(self, packages: list[PackageInfo]) -> int:
+        """
+        Bulk create package nodes.
+
+        Args:
+            packages: List of PackageInfo to create
+
+        Returns:
+            Number of packages created
+        """
+        for package in packages:
+            await self.create_package(package)
+        
+        self.log.info("bulk_packages_created", count=len(packages))
+        return len(packages)
+
     async def bulk_create_nodes(self, modules: list[ModuleInfo]) -> int:
         """
         Bulk create nodes from parsed modules.
@@ -450,24 +496,35 @@ class Neo4jClient(LoggerMixin):
 
     async def get_root_nodes(self) -> list[dict[str, Any]]:
         """
-        Get all root-level modules with child counts.
+        Get all root-level packages and top-level modules with child counts.
 
         Returns:
-            List of module nodes with metadata
+            List of package/module nodes with metadata
         """
         query = """
+        // Get root packages (packages without a parent package)
+        MATCH (p:Package)
+        WHERE p.parent_id = '' OR p.parent_id IS NULL OR NOT EXISTS((pkg:Package)-[:CONTAINS]->(p))
+        OPTIONAL MATCH (p)-[:CONTAINS]->(child)
+        WITH p as node, count(child) as child_count, 'package' as node_type
+        
+        UNION ALL
+        
+        // Get orphan modules (modules not contained in any package)
         MATCH (m:Module)
+        WHERE NOT EXISTS((:Package)-[:CONTAINS]->(m))
         OPTIONAL MATCH (m)-[:CONTAINS]->(child)
-        WITH m, count(child) as child_count
-        RETURN m.id as id,
-               m.name as name,
-               m.path as path,
-               m.qualified_name as qualified_name,
-               m.lines_of_code as lines_of_code,
-               m.docstring as docstring,
+        WITH m as node, count(child) as child_count, 'module' as node_type
+        
+        RETURN node.id as id,
+               node.name as name,
+               node.path as path,
+               node.qualified_name as qualified_name,
+               node.lines_of_code as lines_of_code,
+               node.docstring as docstring,
                child_count,
-               'module' as type
-        ORDER BY m.name
+               node_type as type
+        ORDER BY node_type DESC, node.name
         """
         return await self.execute_query(query)
 
@@ -492,6 +549,7 @@ class Neo4jClient(LoggerMixin):
                child.docstring as docstring,
                child_count,
                CASE
+                   WHEN 'Package' IN labels THEN 'package'
                    WHEN 'Module' IN labels THEN 'module'
                    WHEN 'Class' IN labels THEN 'class'
                    WHEN 'Function' IN labels THEN 'function'
@@ -504,12 +562,14 @@ class Neo4jClient(LoggerMixin):
                child.complexity as complexity
         ORDER BY
             CASE
-                WHEN 'Class' IN labels THEN 0
-                WHEN 'Function' IN labels THEN 1
-                WHEN 'Variable' IN labels THEN 2
-                ELSE 3
+                WHEN 'Package' IN labels THEN 0
+                WHEN 'Module' IN labels THEN 1
+                WHEN 'Class' IN labels THEN 2
+                WHEN 'Function' IN labels THEN 3
+                WHEN 'Variable' IN labels THEN 4
+                ELSE 5
             END,
-            child.line_number
+            child.name, child.line_number
         """
         return await self.execute_query(query, {"node_id": node_id})
 
@@ -691,17 +751,27 @@ class Neo4jClient(LoggerMixin):
         MATCH (n {id: $node_id})
         WITH n, labels(n) as node_labels
         
-        // Get children via CONTAINS
+        // Get children via CONTAINS with grandchild counts
         OPTIONAL MATCH (n)-[:CONTAINS]->(child)
+        OPTIONAL MATCH (child)-[:CONTAINS]->(grandchild)
+        WITH n, node_labels, child, count(grandchild) as grandchild_count
         WITH n, node_labels, collect({
             id: child.id,
             name: child.name,
-            type: head(labels(child)),
+            type: CASE
+                WHEN 'Package' IN labels(child) THEN 'Package'
+                WHEN 'Module' IN labels(child) THEN 'Module'
+                WHEN 'Class' IN labels(child) THEN 'Class'
+                WHEN 'Function' IN labels(child) THEN 'Function'
+                WHEN 'Variable' IN labels(child) THEN 'Variable'
+                ELSE head(labels(child))
+            END,
             qualified_name: child.qualified_name,
             line_number: child.line_number,
             docstring: child.docstring,
             is_async: child.is_async,
-            complexity: child.complexity
+            complexity: child.complexity,
+            child_count: grandchild_count
         }) as children
         
         // Get outgoing relationships (CALLS, IMPORTS, INHERITS)
@@ -710,7 +780,14 @@ class Neo4jClient(LoggerMixin):
         WITH n, node_labels, children, collect({
             target_id: target.id,
             target_name: target.name,
-            target_type: head(labels(target)),
+            target_type: CASE
+                WHEN 'Package' IN labels(target) THEN 'Package'
+                WHEN 'Module' IN labels(target) THEN 'Module'
+                WHEN 'Class' IN labels(target) THEN 'Class'
+                WHEN 'Function' IN labels(target) THEN 'Function'
+                WHEN 'Variable' IN labels(target) THEN 'Variable'
+                ELSE head(labels(target))
+            END,
             edge_type: type(r),
             properties: properties(r)
         }) as outgoing
@@ -735,6 +812,196 @@ class Neo4jClient(LoggerMixin):
             "outgoing": record["outgoing"],
         }
     
+    async def get_children_paginated(
+        self, 
+        node_id: str, 
+        limit: int = 50, 
+        offset: int = 0,
+        type_filter: str | None = None,
+    ) -> dict[str, Any]:
+        """
+        Get paginated children of a node.
+        
+        Args:
+            node_id: ID of the parent node
+            limit: Maximum number of results
+            offset: Number of results to skip
+            type_filter: Optional filter by node type (package, module, class, function, variable)
+        
+        Returns:
+            Dictionary containing:
+            - children: List of child nodes
+            - total: Total number of children
+            - has_more: Whether there are more results
+        """
+        type_clause = ""
+        if type_filter:
+            type_map = {
+                "package": "Package",
+                "module": "Module", 
+                "class": "Class",
+                "function": "Function",
+                "variable": "Variable",
+            }
+            if type_filter.lower() in type_map:
+                type_clause = f"AND '{type_map[type_filter.lower()]}' IN labels(child)"
+        
+        query = f"""
+        MATCH (parent {{id: $node_id}})-[:CONTAINS]->(child)
+        WHERE true {type_clause}
+        WITH child, labels(child) as labels
+        OPTIONAL MATCH (child)-[:CONTAINS]->(grandchild)
+        WITH child, labels, count(grandchild) as child_count
+        WITH collect({{
+            id: child.id,
+            name: child.name,
+            qualified_name: child.qualified_name,
+            line_number: child.line_number,
+            docstring: child.docstring,
+            child_count: child_count,
+            type: CASE
+                WHEN 'Package' IN labels THEN 'package'
+                WHEN 'Module' IN labels THEN 'module'
+                WHEN 'Class' IN labels THEN 'class'
+                WHEN 'Function' IN labels THEN 'function'
+                WHEN 'Variable' IN labels THEN 'variable'
+                ELSE 'unknown'
+            END,
+            is_async: child.is_async,
+            is_method: child.is_method,
+            is_abstract: child.is_abstract,
+            complexity: child.complexity
+        }}) as all_children
+        RETURN size(all_children) as total,
+               all_children[$offset..$offset + $limit] as children
+        """
+        result = await self.execute_query(query, {
+            "node_id": node_id, 
+            "limit": limit, 
+            "offset": offset
+        })
+        
+        if not result:
+            return {"children": [], "total": 0, "has_more": False}
+        
+        record = result[0]
+        total = record["total"]
+        children = record["children"]
+        
+        return {
+            "children": children,
+            "total": total,
+            "has_more": offset + len(children) < total,
+        }
+    
+    async def get_nodes_at_depth(
+        self,
+        root_id: str,
+        depth: int = 1,
+        limit: int = 100,
+    ) -> list[dict[str, Any]]:
+        """
+        Get all nodes at a specific depth from a root node.
+        
+        Args:
+            root_id: ID of the root node (or empty for absolute root)
+            depth: Depth level (1 = direct children, 2 = grandchildren, etc.)
+            limit: Maximum number of results
+        
+        Returns:
+            List of nodes at the specified depth
+        """
+        if root_id:
+            query = """
+            MATCH (root {id: $root_id})-[:CONTAINS*""" + str(depth) + """]->(node)
+            WITH node, labels(node) as labels
+            OPTIONAL MATCH (node)-[:CONTAINS]->(child)
+            WITH node, labels, count(child) as child_count
+            RETURN node.id as id,
+                   node.name as name,
+                   node.qualified_name as qualified_name,
+                   node.docstring as docstring,
+                   child_count,
+                   CASE
+                       WHEN 'Package' IN labels THEN 'package'
+                       WHEN 'Module' IN labels THEN 'module'
+                       WHEN 'Class' IN labels THEN 'class'
+                       WHEN 'Function' IN labels THEN 'function'
+                       WHEN 'Variable' IN labels THEN 'variable'
+                       ELSE 'unknown'
+                   END as type
+            LIMIT $limit
+            """
+            return await self.execute_query(query, {"root_id": root_id, "limit": limit})
+        else:
+            # Get root-level nodes if no root_id
+            return await self.get_root_nodes()
+    
+    async def get_subtree(
+        self,
+        root_id: str,
+        max_depth: int = 2,
+        limit_per_level: int = 50,
+    ) -> dict[str, Any]:
+        """
+        Get a subtree starting from a node up to a maximum depth.
+        
+        Useful for preloading visible portions of the tree.
+        
+        Args:
+            root_id: ID of the root node
+            max_depth: Maximum depth to traverse
+            limit_per_level: Maximum children per node
+        
+        Returns:
+            Dictionary containing the node and its nested children
+        """
+        query = """
+        MATCH (root {id: $root_id})
+        WITH root, labels(root) as root_labels
+        OPTIONAL MATCH path = (root)-[:CONTAINS*1..""" + str(max_depth) + """]->(descendant)
+        WITH root, root_labels, descendant, length(path) as depth, labels(descendant) as desc_labels
+        WHERE depth IS NOT NULL
+        WITH root, root_labels, collect({
+            id: descendant.id,
+            name: descendant.name,
+            qualified_name: descendant.qualified_name,
+            depth: depth,
+            type: CASE
+                WHEN 'Package' IN desc_labels THEN 'package'
+                WHEN 'Module' IN desc_labels THEN 'module'
+                WHEN 'Class' IN desc_labels THEN 'class'
+                WHEN 'Function' IN desc_labels THEN 'function'
+                WHEN 'Variable' IN desc_labels THEN 'variable'
+                ELSE 'unknown'
+            END,
+            docstring: descendant.docstring,
+            line_number: descendant.line_number
+        }) as descendants
+        RETURN root.id as id,
+               root.name as name,
+               CASE
+                   WHEN 'Package' IN root_labels THEN 'package'
+                   WHEN 'Module' IN root_labels THEN 'module'
+                   WHEN 'Class' IN root_labels THEN 'class'
+                   WHEN 'Function' IN root_labels THEN 'function'
+                   ELSE 'unknown'
+               END as type,
+               descendants
+        """
+        result = await self.execute_query(query, {"root_id": root_id})
+        
+        if not result:
+            return {"id": root_id, "name": "", "type": "unknown", "children": []}
+        
+        record = result[0]
+        return {
+            "id": record["id"],
+            "name": record["name"],
+            "type": record["type"],
+            "descendants": record["descendants"],
+        }
+
     async def get_node_connections(self, node_id: str) -> list[dict[str, Any]]:
         """
         Get all nodes that this node connects to (outgoing) and are connected from (incoming).

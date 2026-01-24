@@ -23,6 +23,7 @@ from parser.models import (
     FunctionInfo,
     ImportInfo,
     ModuleInfo,
+    PackageInfo,
     ParameterInfo,
     Relationship,
     RelationshipType,
@@ -177,6 +178,9 @@ class ProjectParser(LoggerMixin):
         # Per-file import mappings: file_id -> {alias -> ImportEntry}
         self.file_imports: dict[str, dict[str, ImportEntry]] = defaultdict(dict)
         
+        # Collected packages (directories with __init__.py)
+        self.packages: list[PackageInfo] = []
+        
         # Collected modules
         self.modules: list[ModuleInfo] = []
         
@@ -185,13 +189,16 @@ class ProjectParser(LoggerMixin):
         
         # Parse errors
         self.errors: list[str] = []
+        
+        # Package ID mapping: relative path -> PackageInfo
+        self._package_map: dict[str, PackageInfo] = {}
     
-    def parse_project(self) -> tuple[list[ModuleInfo], list[Relationship]]:
+    def parse_project(self) -> tuple[list[PackageInfo], list[ModuleInfo], list[Relationship]]:
         """
         Execute 3-pass parsing on the entire project.
         
         Returns:
-            Tuple of (modules, relationships)
+            Tuple of (packages, modules, relationships)
         """
         # Find all Python files
         files = self._discover_files()
@@ -199,7 +206,11 @@ class ProjectParser(LoggerMixin):
         
         if not files:
             self.log.warning("no_python_files_found", root=str(self.root))
-            return [], []
+            return [], [], []
+        
+        # Pass 0: Discover packages (directories with __init__.py)
+        self._pass0_packages(files)
+        self.log.info("pass0_complete", packages=len(self.packages))
         
         # Pass 1: Discovery - build file -> module ID mapping
         self._pass1_discovery(files)
@@ -213,7 +224,7 @@ class ProjectParser(LoggerMixin):
         self._pass3_linker()
         self.log.info("pass3_complete", relationships=len(self.relationships))
         
-        return self.modules, self.relationships
+        return self.packages, self.modules, self.relationships
     
     def _discover_files(self) -> list[Path]:
         """Find all Python files in the project."""
@@ -266,6 +277,88 @@ class ProjectParser(LoggerMixin):
         
         return module_name, package_name
     
+    # =========================================================================
+    # Pass 0: Package Discovery
+    # =========================================================================
+    
+    def _pass0_packages(self, files: list[Path]) -> None:
+        """
+        Discover package directories (those containing __init__.py).
+        
+        Builds a hierarchical package structure.
+        """
+        # Find all directories containing __init__.py
+        package_dirs: set[Path] = set()
+        for file_path in files:
+            if file_path.name == "__init__.py":
+                package_dirs.add(file_path.parent)
+        
+        # Also add parent directories that are packages
+        for pkg_dir in list(package_dirs):
+            parent = pkg_dir.parent
+            while parent >= self.root:
+                if (parent / "__init__.py").exists():
+                    package_dirs.add(parent)
+                parent = parent.parent
+        
+        # Sort by depth (shallowest first) to build hierarchy correctly
+        sorted_dirs = sorted(package_dirs, key=lambda p: len(p.parts))
+        
+        for pkg_dir in sorted_dirs:
+            rel_path = self._get_relative_path(pkg_dir)
+            pkg_name = pkg_dir.name
+            
+            # Calculate qualified name
+            if rel_path == ".":
+                qualified_name = pkg_name
+            else:
+                qualified_name = rel_path.replace("/", ".").replace("\\", ".")
+            
+            # Find parent package
+            parent_id = ""
+            parent_dir = pkg_dir.parent
+            if parent_dir >= self.root:
+                parent_rel = self._get_relative_path(parent_dir)
+                if parent_rel in self._package_map:
+                    parent_id = parent_rel
+            
+            # Extract docstring from __init__.py if it exists
+            init_path = pkg_dir / "__init__.py"
+            docstring = None
+            if init_path.exists():
+                try:
+                    content = init_path.read_bytes()
+                    tree = self.parser.parse(content)
+                    docstring = self._extract_docstring(tree.root_node, content)
+                except Exception:
+                    pass
+            
+            package = PackageInfo(
+                id=rel_path if rel_path != "." else pkg_name,
+                path=pkg_dir,
+                name=pkg_name,
+                qualified_name=qualified_name,
+                parent_id=parent_id,
+                docstring=docstring,
+            )
+            
+            self.packages.append(package)
+            self._package_map[rel_path] = package
+            
+            # Register in symbol table
+            self.symbols[package.id] = SymbolEntry(
+                id=package.id,
+                name=pkg_name,
+                kind="package",
+                file_path=pkg_dir,
+                qualified_name=qualified_name,
+            )
+            self.qualified_to_id[qualified_name] = package.id
+            
+            # Update parent's child list
+            if parent_id and parent_id in self._package_map:
+                self._package_map[parent_id].child_packages.append(package.id)
+    
     def _get_text(self, node: Node, content: bytes) -> str:
         """Extract text from a node."""
         return content[node.start_byte:node.end_byte].decode("utf-8", errors="replace")
@@ -306,6 +399,14 @@ class ProjectParser(LoggerMixin):
             
             self.symbols[file_id] = entry
             self.qualified_to_id[qualified_name] = file_id
+            
+            # Link module to parent package
+            parent_dir = file_path.parent
+            parent_rel = self._get_relative_path(parent_dir)
+            if parent_rel in self._package_map:
+                # Skip __init__.py modules as they are part of the package itself
+                if file_path.name != "__init__.py":
+                    self._package_map[parent_rel].child_modules.append(file_id)
     
     # =========================================================================
     # Pass 2: Local AST Extraction
@@ -1035,6 +1136,9 @@ class ProjectParser(LoggerMixin):
         """
         Resolve cross-file references and create relationships.
         """
+        # Create package hierarchy relationships
+        self._create_package_relationships()
+        
         for module in self.modules:
             file_id = module.id
             
@@ -1049,6 +1153,25 @@ class ProjectParser(LoggerMixin):
             
             # Resolve inheritance
             self._resolve_inheritance(module, file_id)
+    
+    def _create_package_relationships(self) -> None:
+        """Create CONTAINS relationships for package hierarchy."""
+        for package in self.packages:
+            # Package -> child packages
+            for child_pkg_id in package.child_packages:
+                self.relationships.append(Relationship(
+                    source_id=package.id,
+                    target_id=child_pkg_id,
+                    relationship_type=RelationshipType.CONTAINS,
+                ))
+            
+            # Package -> child modules
+            for child_mod_id in package.child_modules:
+                self.relationships.append(Relationship(
+                    source_id=package.id,
+                    target_id=child_mod_id,
+                    relationship_type=RelationshipType.CONTAINS,
+                ))
     
     def _create_contains_relationships(self, module: ModuleInfo, file_id: str) -> None:
         """Create CONTAINS relationships for module structure."""
