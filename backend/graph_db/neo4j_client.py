@@ -507,15 +507,6 @@ class Neo4jClient(LoggerMixin):
         WHERE p.parent_id = '' OR p.parent_id IS NULL
         OPTIONAL MATCH (p)-[:CONTAINS]->(child)
         WITH p as node, count(child) as child_count, 'package' as node_type
-        
-        UNION ALL
-        
-        // Get orphan modules (modules not contained in any package)
-        MATCH (m:Module)
-        WHERE NOT EXISTS { (:Package)-[:CONTAINS]->(m) }
-        OPTIONAL MATCH (m)-[:CONTAINS]->(child)
-        WITH m as node, count(child) as child_count, 'module' as node_type
-        
         RETURN node.id as id,
                node.name as name,
                node.path as path,
@@ -524,7 +515,24 @@ class Neo4jClient(LoggerMixin):
                node.docstring as docstring,
                child_count,
                node_type as type
-        ORDER BY node_type DESC, node.name
+        
+        UNION ALL
+        
+        // Get orphan modules (modules not contained in any package)
+        MATCH (m:Module)
+        WHERE NOT EXISTS { (:Package)-[:CONTAINS]->(m) }
+        OPTIONAL MATCH (m)-[:CONTAINS]->(child)
+        WITH m as node, count(child) as child_count, 'module' as node_type
+        RETURN node.id as id,
+               node.name as name,
+               node.path as path,
+               node.qualified_name as qualified_name,
+               node.lines_of_code as lines_of_code,
+               node.docstring as docstring,
+               child_count,
+               node_type as type
+        
+        ORDER BY type DESC, name
         """
         return await self.execute_query(query)
 
