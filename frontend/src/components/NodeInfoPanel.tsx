@@ -2,49 +2,40 @@
  * NeuroCode Node Info Panel Component
  */
 
-import { useMemo } from 'react';
-import { useGraphStore } from '@/stores/graphStore';
-import { NODE_COLORS } from '@/utils/colorScheme';
+import { useTreeStore, NODE_COLORS } from '@/stores/treeStore';
 
 export function NodeInfoPanel() {
-    const nodes = useGraphStore((state) => state.nodes);
-
-    const selectedNode = useMemo(() => {
-        const node = nodes.find((n) => n.selected);
-        if (!node) return null;
-        // Map React Flow node data back to a structure NodeInfoPanel can use
-        // The original ProjectTreeNode is in node.data.original
-        const original = node.data?.original;
-        if (!original) return null;
-
-        return {
-            name: original.label || original.id,
-            type: original.type,
-            qualifiedName: original.data?.qualified_name,
-            lineNumber: original.data?.line_number, // might differ based on tree_builder
-            childCount: original.children?.length || 0,
-            complexity: original.data?.complexity,
-            docstring: original.data?.docstring,
-            isAsync: original.data?.is_async,
-            returnType: original.data?.return_type,
-            typeHint: original.data?.type_hint,
-        };
-    }, [nodes]);
+    const selectedNodeId = useTreeStore((state) => state.selectedNodeId);
+    const getNode = useTreeStore((state) => state.getNode);
+    const isExpanded = useTreeStore((state) => state.isExpanded);
+    const expandNode = useTreeStore((state) => state.expandNode);
+    const collapseNode = useTreeStore((state) => state.collapseNode);
+    
+    const selectedNode = selectedNodeId ? getNode(selectedNodeId) : null;
+    const expanded = selectedNodeId ? isExpanded(selectedNodeId) : false;
 
     if (!selectedNode) {
         return (
             <div className="node-info-panel node-info-panel-empty">
-                <p>Select a node to view details</p>
+                <div className="empty-state">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
+                        <circle cx="12" cy="12" r="10" />
+                        <path d="M12 16v-4m0-4h.01" />
+                    </svg>
+                    <p>Select a node to view details</p>
+                </div>
             </div>
         );
     }
+
+    const color = NODE_COLORS[selectedNode.type] || NODE_COLORS.unknown;
 
     return (
         <div className="node-info-panel">
             <div className="node-info-header">
                 <span
                     className="node-info-type"
-                    style={{ backgroundColor: NODE_COLORS[selectedNode.type]?.base || '#6b7280' }}
+                    style={{ backgroundColor: color }}
                 >
                     {selectedNode.type}
                 </span>
@@ -62,11 +53,64 @@ export function NodeInfoPanel() {
                         <span className="stat-value">{selectedNode.childCount}</span>
                     </div>
                 )}
+                {selectedNode.lineNumber && (
+                    <div className="node-info-stat">
+                        <span className="stat-label">Line</span>
+                        <span className="stat-value">{selectedNode.lineNumber}</span>
+                    </div>
+                )}
+                {selectedNode.complexity && (
+                    <div className="node-info-stat">
+                        <span className="stat-label">Complexity</span>
+                        <span 
+                            className="stat-value"
+                            style={{ 
+                                color: selectedNode.complexity > 10 ? '#ef4444' : 
+                                       selectedNode.complexity > 5 ? '#f59e0b' : 'inherit' 
+                            }}
+                        >
+                            {selectedNode.complexity}
+                        </span>
+                    </div>
+                )}
+                {selectedNode.isAsync && (
+                    <div className="node-info-badge">
+                        <span>⚡ Async</span>
+                    </div>
+                )}
             </div>
 
-            <div className="node-info-docstring">
-                {selectedNode.docstring && <p>{selectedNode.docstring}</p>}
-            </div>
+            {selectedNode.childCount > 0 && (
+                <div className="node-info-actions">
+                    <button
+                        className="node-info-action"
+                        onClick={() => expanded ? collapseNode(selectedNode.id) : expandNode(selectedNode.id)}
+                    >
+                        {expanded ? (
+                            <>
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                    <path d="M5 12h14" />
+                                </svg>
+                                Collapse
+                            </>
+                        ) : (
+                            <>
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                    <path d="M12 5v14m-7-7h14" />
+                                </svg>
+                                Expand
+                            </>
+                        )}
+                    </button>
+                </div>
+            )}
+
+            {selectedNode.docstring && (
+                <div className="node-info-docstring">
+                    <h3>Documentation</h3>
+                    <p>{selectedNode.docstring}</p>
+                </div>
+            )}
         </div>
     );
 }

@@ -4,7 +4,7 @@
  * Type definitions for the code visualization graph.
  */
 
-export type NodeType = 'module' | 'class' | 'function' | 'variable' | 'unknown';
+export type NodeType = 'package' | 'module' | 'class' | 'function' | 'variable' | 'unknown';
 
 export type RelationshipType =
     | 'CONTAINS'

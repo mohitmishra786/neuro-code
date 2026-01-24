@@ -3,34 +3,36 @@
  */
 
 import { useState, useCallback, useRef, useEffect } from 'react';
-import { useGraphStore } from '@/stores/graphStore';
-import { NODE_COLORS } from '@/utils/colorScheme';
+import { useTreeStore, NODE_COLORS } from '@/stores/treeStore';
 
 export function SearchBar() {
-    const [query, setQuery] = useState('');
     const [isFocused, setIsFocused] = useState(false);
-    const searchResults = useGraphStore((state) => state.searchResults);
-    const searchNodes = useGraphStore((state) => state.searchNodes);
-    const focusNode = useGraphStore((state) => state.focusNode);
+    const searchQuery = useTreeStore((state) => state.searchQuery);
+    const searchResults = useTreeStore((state) => state.searchResults);
+    const search = useTreeStore((state) => state.search);
+    const setSearchQuery = useTreeStore((state) => state.setSearchQuery);
+    const navigateToSearchResult = useTreeStore((state) => state.navigateToSearchResult);
     const inputRef = useRef<HTMLInputElement>(null);
 
     const handleSearch = useCallback(
         (value: string) => {
-            setQuery(value);
-            searchNodes(value);
+            search(value);
         },
-        [searchNodes],
+        [search],
     );
 
     const handleResultClick = useCallback(
-        (nodeId: string) => {
-            focusNode(nodeId);
-            setQuery('');
+        async (nodeId: string) => {
+            await navigateToSearchResult(nodeId);
             setIsFocused(false);
-            searchNodes('');
         },
-        [focusNode, searchNodes],
+        [navigateToSearchResult],
     );
+
+    const handleClear = useCallback(() => {
+        setSearchQuery('');
+        search('');
+    }, [setSearchQuery, search]);
 
     // Keyboard shortcut
     useEffect(() => {
@@ -62,15 +64,15 @@ export function SearchBar() {
                 <input
                     ref={inputRef}
                     type="text"
-                    value={query}
+                    value={searchQuery}
                     onChange={(e) => handleSearch(e.target.value)}
                     onFocus={() => setIsFocused(true)}
                     onBlur={() => setTimeout(() => setIsFocused(false), 200)}
                     placeholder="Search nodes... (Cmd+K)"
                     className="search-input"
                 />
-                {query && (
-                    <button className="search-clear" onClick={() => handleSearch('')}>
+                {searchQuery && (
+                    <button className="search-clear" onClick={handleClear}>
                         <svg viewBox="0 0 20 20" fill="currentColor">
                             <path
                                 fillRule="evenodd"
@@ -92,7 +94,7 @@ export function SearchBar() {
                         >
                             <span
                                 className="search-result-type"
-                                style={{ backgroundColor: NODE_COLORS[result.type]?.base || '#6b7280' }}
+                                style={{ backgroundColor: NODE_COLORS[result.type] || '#6b7280' }}
                             >
                                 {result.type.charAt(0).toUpperCase()}
                             </span>

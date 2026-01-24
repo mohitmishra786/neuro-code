@@ -33,6 +33,9 @@ logger = get_logger("parse_codebase")
 async def parse_codebase(
     root_path: Path,
     clear_existing: bool = False,
+    max_depth: int | None = None,
+    include_variables: bool = True,
+    exclude_tests: bool = False,
 ) -> dict:
     """
     Parse a Python codebase and store in Neo4j.
@@ -53,7 +56,11 @@ async def parse_codebase(
     python_files = list(root_path.rglob("*.py"))
 
     # Filter ignored patterns
-    ignore_patterns = settings.parser.ignore_patterns
+    ignore_patterns = list(settings.parser.ignore_patterns)
+    
+    # Add test exclusion if requested
+    if exclude_tests:
+        ignore_patterns.extend(["test_", "tests/", "_test.py", "conftest.py"])
 
     def should_ignore(path: Path) -> bool:
         path_str = str(path)
@@ -98,6 +105,30 @@ async def parse_codebase(
         time_seconds=round(parse_time, 2),
     )
 
+    # Apply depth and variable filters to modules
+    if max_depth is not None or not include_variables:
+        for module in modules:
+            # Filter variables if not included
+            if not include_variables:
+                module.variables = []
+                for cls in module.classes:
+                    cls.class_variables = []
+                    cls.instance_variables = []
+            
+            # Apply depth filter
+            # Depth 1 = modules only
+            # Depth 2 = modules + classes
+            # Depth 3 = modules + classes + methods/functions
+            # Depth 4+ = everything
+            if max_depth is not None:
+                if max_depth < 2:
+                    module.classes = []
+                    module.functions = []
+                elif max_depth < 3:
+                    module.functions = []
+                    for cls in module.classes:
+                        cls.methods = []
+    
     # Extract relationships
     logger.info("extracting_relationships")
     relationships = extractor.extract_relationships(modules)
@@ -157,6 +188,24 @@ def main() -> None:
         action="store_true",
         help="Clear existing graph data before parsing",
     )
+    parser.add_argument(
+        "--max-depth",
+        type=int,
+        default=None,
+        help="Maximum depth to parse (e.g., 2 = modules and classes, 3 = include methods)",
+    )
+    parser.add_argument(
+        "--include-variables",
+        action="store_true",
+        default=False,
+        help="Include module and class variables in the graph (can increase noise)",
+    )
+    parser.add_argument(
+        "--exclude-tests",
+        action="store_true",
+        default=False,
+        help="Exclude test directories from parsing",
+    )
 
     args = parser.parse_args()
 
@@ -169,7 +218,13 @@ def main() -> None:
         sys.exit(1)
 
     try:
-        result = asyncio.run(parse_codebase(args.path, clear_existing=args.clear))
+        result = asyncio.run(parse_codebase(
+            args.path, 
+            clear_existing=args.clear,
+            max_depth=args.max_depth,
+            include_variables=args.include_variables,
+            exclude_tests=args.exclude_tests,
+        ))
 
         if "error" in result:
             print(f"Error: {result['error']}")

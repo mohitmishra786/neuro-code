@@ -15,7 +15,7 @@ import {
     ProjectTreeNode,
 } from '@/types/graph.types';
 
-const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:8000';
+const API_BASE = 'http://localhost:8000';
 
 class ApiError extends Error {
     constructor(
@@ -250,8 +250,7 @@ export const api = {
 
     /**
      * Health check
-     *
-    */
+     */
     async healthCheck(): Promise<{ status: string; version: string; neo4j: string }> {
         return fetchJson(`${API_BASE}/health`);
     },

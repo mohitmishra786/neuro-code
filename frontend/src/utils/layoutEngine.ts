@@ -95,10 +95,12 @@ export function treeLayout(
 
         // Find children (nodes that have this as parent in graph)
         const children: string[] = [];
+        const nodeQualifiedName = node.qualifiedName || '';
         nodes.forEach((n, id) => {
             // This is simplified - in real implementation would use edge data
-            if (n.qualifiedName?.startsWith(node.qualifiedName + '.')) {
-                const remaining = n.qualifiedName.slice(node.qualifiedName.length + 1);
+            const nQualifiedName = n.qualifiedName || '';
+            if (nodeQualifiedName && nQualifiedName.startsWith(nodeQualifiedName + '.')) {
+                const remaining = nQualifiedName.slice(nodeQualifiedName.length + 1);
                 if (!remaining.includes('.')) {
                     children.push(id);
                 }
@@ -191,8 +193,8 @@ export function calculateNodeSize(
  * Calculate edge weight for layout.
  */
 export function calculateEdgeWeight(
-    sourceType: string,
-    targetType: string,
+    _sourceType: string,
+    _targetType: string,
     relationshipType: string,
 ): number {
     // Stronger weight = closer together

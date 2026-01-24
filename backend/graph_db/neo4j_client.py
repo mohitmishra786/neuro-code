@@ -504,7 +504,7 @@ class Neo4jClient(LoggerMixin):
         query = """
         // Get root packages (packages without a parent package)
         MATCH (p:Package)
-        WHERE p.parent_id = '' OR p.parent_id IS NULL OR NOT EXISTS((pkg:Package)-[:CONTAINS]->(p))
+        WHERE p.parent_id = '' OR p.parent_id IS NULL
         OPTIONAL MATCH (p)-[:CONTAINS]->(child)
         WITH p as node, count(child) as child_count, 'package' as node_type
         
@@ -512,7 +512,7 @@ class Neo4jClient(LoggerMixin):
         
         // Get orphan modules (modules not contained in any package)
         MATCH (m:Module)
-        WHERE NOT EXISTS((:Package)-[:CONTAINS]->(m))
+        WHERE NOT EXISTS { (:Package)-[:CONTAINS]->(m) }
         OPTIONAL MATCH (m)-[:CONTAINS]->(child)
         WITH m as node, count(child) as child_count, 'module' as node_type
         

@@ -3,19 +3,19 @@
  */
 
 import { useEffect } from 'react';
-import { FlowGraph } from '@/components/FlowGraph';
+import { TreeGraph } from '@/components/TreeGraph';
 import { SearchBar } from '@/components/SearchBar';
 import { NodeInfoPanel } from '@/components/NodeInfoPanel';
 import { Breadcrumbs } from '@/components/Breadcrumbs';
 import { ControlPanel } from '@/components/ControlPanel';
 import { ThemeToggle } from '@/components/ThemeToggle';
-import { useGraphStore } from '@/stores/graphStore';
+import { useTreeStore } from '@/stores/treeStore';
 import { useThemeStore } from '@/stores/themeStore';
 
 import './App.css';
 
 function App() {
-    const error = useGraphStore((state) => state.error);
+    const error = useTreeStore((state) => state.error);
     const mode = useThemeStore((state) => state.mode);
 
     // Apply theme on mount
@@ -49,13 +49,13 @@ function App() {
             {error && (
                 <div className="error-banner">
                     <span>{error}</span>
-                    <button onClick={() => useGraphStore.setState({ error: null })}>Dismiss</button>
+                    <button onClick={() => useTreeStore.setState({ error: null })}>Dismiss</button>
                 </div>
             )}
 
             <main className="app-main">
                 <div className="graph-container">
-                    <FlowGraph />
+                    <TreeGraph />
                 </div>
                 <aside className="sidebar">
                     <NodeInfoPanel />

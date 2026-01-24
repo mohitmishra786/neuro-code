@@ -50,12 +50,13 @@ async def parse_project(
     parser = ProjectParser(root_path)
     
     # Execute 3-pass parsing
-    modules, relationships = parser.parse_project()
+    packages, modules, relationships = parser.parse_project()
     
     parse_time = time.perf_counter() - start_time
     
     logger.info(
         "parsing_completed",
+        packages=len(packages),
         modules=len(modules),
         relationships=len(relationships),
         errors=len(parser.errors),
@@ -63,7 +64,7 @@ async def parse_project(
         time_seconds=round(parse_time, 2),
     )
     
-    if not modules:
+    if not modules and not packages:
         return {"error": "No modules parsed", "errors": parser.errors}
     
     # Connect to Neo4j and store
@@ -78,6 +79,10 @@ async def parse_project(
             await client.clear_database()
         
         await client.initialize_schema()
+        
+        # Store packages first
+        logger.info("storing_packages", count=len(packages))
+        packages_created = await client.bulk_create_packages(packages)
         
         # Store nodes
         logger.info("storing_nodes", count=len(modules))
@@ -97,6 +102,7 @@ async def parse_project(
         
         stats = {
             "status": "completed",
+            "packages_created": packages_created,
             "modules_parsed": len(modules),
             "nodes_created": nodes_created,
             "relationships_created": rels_created,
@@ -129,6 +135,18 @@ def main() -> None:
         action="store_true",
         help="Clear existing graph data before parsing",
     )
+    arg_parser.add_argument(
+        "--max-depth",
+        type=int,
+        default=None,
+        help="Maximum depth to parse (e.g., 2 = packages/modules and classes, 3 = include methods)",
+    )
+    arg_parser.add_argument(
+        "--include-variables",
+        action="store_true",
+        default=False,
+        help="Include module and class variables in the graph (can increase noise)",
+    )
     
     args = arg_parser.parse_args()
     
@@ -151,6 +169,7 @@ def main() -> None:
             sys.exit(1)
         
         print("\nDeep Parsing Complete!")
+        print(f"  Packages created: {result['packages_created']}")
         print(f"  Modules parsed: {result['modules_parsed']}")
         print(f"  Nodes created: {result['nodes_created']}")
         print(f"  Relationships: {result['relationships_created']}")

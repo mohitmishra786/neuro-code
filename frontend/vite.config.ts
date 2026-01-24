@@ -11,7 +11,7 @@ export default defineConfig({
     },
     server: {
         port: 3000,
-        host: true,
+        host: '127.0.0.1',
         proxy: {
             '/api': {
                 target: 'http://localhost:8000',
@@ -31,7 +31,7 @@ export default defineConfig({
             output: {
                 manualChunks: {
                     vendor: ['react', 'react-dom'],
-                    graph: ['sigma', 'graphology', '@react-sigma/core'],
+                    graph: ['reactflow', 'dagre'],
                 },
             },
         },

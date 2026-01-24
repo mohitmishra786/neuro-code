@@ -5,7 +5,7 @@
  */
 
 import { useEffect, useRef, useCallback, useState } from 'react';
-import { useGraphStore } from '@/stores/graphStore';
+import { useTreeStore } from '@/stores/treeStore';
 
 type MessageHandler = (data: unknown) => void;
 
@@ -22,9 +22,21 @@ interface WebSocketState {
     error: string | null;
 }
 
+interface WebSocketMessage {
+    type: string;
+    data?: {
+        file?: string;
+        node_id?: string;
+        changes?: Array<{
+            type: 'added' | 'modified' | 'removed';
+            node_id: string;
+        }>;
+    };
+}
+
 export function useWebSocket(options: UseWebSocketOptions = {}) {
     const {
-        url = import.meta.env.VITE_WS_URL || 'ws://localhost:8000/ws',
+        url = 'ws://localhost:8000/ws',
         onMessage,
         reconnectInterval = 3000,
         maxReconnectAttempts = 5,
@@ -40,7 +52,8 @@ export function useWebSocket(options: UseWebSocketOptions = {}) {
         error: null,
     });
 
-    const refresh = useGraphStore((s) => s.refresh);
+    const loadRootNodes = useTreeStore((s) => s.loadRootNodes);
+    const reset = useTreeStore((s) => s.reset);
 
     const connect = useCallback(() => {
         if (wsRef.current?.readyState === WebSocket.OPEN) {
@@ -53,16 +66,33 @@ export function useWebSocket(options: UseWebSocketOptions = {}) {
             ws.onopen = () => {
                 setState((prev) => ({ ...prev, isConnected: true, error: null }));
                 reconnectCountRef.current = 0;
+                console.log('[WebSocket] Connected');
             };
 
             ws.onmessage = (event) => {
                 try {
-                    const data = JSON.parse(event.data);
+                    const data: WebSocketMessage = JSON.parse(event.data);
                     setState((prev) => ({ ...prev, lastMessage: data }));
 
                     // Handle specific message types
-                    if (data.type === 'graph_updated') {
-                        refresh();
+                    switch (data.type) {
+                        case 'graph_updated':
+                        case 'file_changed':
+                            console.log('[WebSocket] Graph update received:', data);
+                            reset();
+                            loadRootNodes();
+                            break;
+                        
+                        case 'node_updated':
+                            console.log('[WebSocket] Node update:', data.data?.node_id);
+                            break;
+                        
+                        case 'connected':
+                            console.log('[WebSocket] Server acknowledged connection');
+                            break;
+                        
+                        default:
+                            console.log('[WebSocket] Unknown message type:', data.type);
                     }
 
                     onMessage?.(data);
@@ -78,10 +108,11 @@ export function useWebSocket(options: UseWebSocketOptions = {}) {
             ws.onclose = () => {
                 setState((prev) => ({ ...prev, isConnected: false }));
                 wsRef.current = null;
+                console.log('[WebSocket] Disconnected');
 
-                // Attempt reconnection
                 if (reconnectCountRef.current < maxReconnectAttempts) {
                     reconnectCountRef.current += 1;
+                    console.log(`[WebSocket] Reconnecting (${reconnectCountRef.current}/${maxReconnectAttempts})...`);
                     reconnectTimeoutRef.current = window.setTimeout(connect, reconnectInterval);
                 }
             };
@@ -93,14 +124,14 @@ export function useWebSocket(options: UseWebSocketOptions = {}) {
                 error: error instanceof Error ? error.message : 'Connection failed',
             }));
         }
-    }, [url, onMessage, reconnectInterval, maxReconnectAttempts, refresh]);
+    }, [url, onMessage, reconnectInterval, maxReconnectAttempts, loadRootNodes, reset]);
 
     const disconnect = useCallback(() => {
         if (reconnectTimeoutRef.current) {
             clearTimeout(reconnectTimeoutRef.current);
             reconnectTimeoutRef.current = null;
         }
-        reconnectCountRef.current = maxReconnectAttempts; // Prevent auto-reconnect
+        reconnectCountRef.current = maxReconnectAttempts;
         wsRef.current?.close();
         wsRef.current = null;
         setState((prev) => ({ ...prev, isConnected: false }));
