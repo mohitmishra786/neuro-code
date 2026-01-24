@@ -651,7 +651,6 @@ async def update_changed_files(
         logger.error("update_failed", error=str(e))
         raise HTTPException(status_code=500, detail=str(e))
 
-
 @router.delete("/clear")
 async def clear_graph(
     client: Neo4jClient = Depends(get_client),
@@ -670,4 +669,69 @@ async def clear_graph(
 
     except Exception as e:
         logger.error("clear_failed", error=str(e))
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/tree")
+async def get_project_tree(
+    path: str = Query(..., description="Path to the codebase"),
+    recursive: bool = Query(True, description="Parse recursively"),
+) -> dict[str, Any]:
+    """
+    Get the full hierarchical tree of the codebase.
+    
+    Parses the codebase in-memory and returns the nested structure
+    suitable for React Flow visualization.
+    """
+    logger.info("tree_requested", path=path)
+    
+    codebase_path = Path(path)
+    if not codebase_path.exists():
+        raise HTTPException(status_code=404, detail="Path not found")
+        
+    try:
+        # We can reuse the existing _parser. 
+        # Note: This does a fresh parse. For a persistent DB approach,
+        # we would query Neo4j, but fitting the Neo4j flat records back into 
+        # a tree is complex. Since tree-sitter is fast, we parse on demand 
+        # for the visualizer for now.
+        
+        # Discover files
+        if recursive:
+            files = list(codebase_path.rglob("*.py"))
+        else:
+            files = list(codebase_path.glob("*.py"))
+            
+        # Filter ignored
+        from utils.config import get_settings
+        settings = get_settings()
+        ignore_patterns = settings.parser.ignore_patterns
+        
+        files = [f for f in files if not any(p in str(f) for p in ignore_patterns)]
+        
+        if not files:
+            return {"id": "root", "type": "root", "children": []}
+            
+        # Parse
+        modules = []
+        for f in files:
+            try:
+                modules.append(_parser.parse_file(f))
+            except Exception:
+                continue
+                
+        # Build Tree
+        from parser.tree_builder import TreeBuilder
+        from parser.models import ParseResult
+        
+        # We pass empty relationships list as we only need structure for the tree view
+        # Relationships are fetched on demand or we could add them to the tree
+        result = ParseResult(modules=modules, relationships=[])
+        builder = TreeBuilder(result, str(codebase_path))
+        tree = builder.build()
+        
+        return tree
+        
+    except Exception as e:
+        logger.error("tree_generation_failed", error=str(e))
         raise HTTPException(status_code=500, detail=str(e))

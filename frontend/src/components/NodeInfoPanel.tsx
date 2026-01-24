@@ -7,13 +7,29 @@ import { useGraphStore } from '@/stores/graphStore';
 import { NODE_COLORS } from '@/utils/colorScheme';
 
 export function NodeInfoPanel() {
-    const selectedNodeId = useGraphStore((state) => state.selectedNodeId);
     const nodes = useGraphStore((state) => state.nodes);
 
     const selectedNode = useMemo(() => {
-        if (!selectedNodeId) return null;
-        return nodes.get(selectedNodeId);
-    }, [selectedNodeId, nodes]);
+        const node = nodes.find((n) => n.selected);
+        if (!node) return null;
+        // Map React Flow node data back to a structure NodeInfoPanel can use
+        // The original ProjectTreeNode is in node.data.original
+        const original = node.data?.original;
+        if (!original) return null;
+
+        return {
+            name: original.label || original.id,
+            type: original.type,
+            qualifiedName: original.data?.qualified_name,
+            lineNumber: original.data?.line_number, // might differ based on tree_builder
+            childCount: original.children?.length || 0,
+            complexity: original.data?.complexity,
+            docstring: original.data?.docstring,
+            isAsync: original.data?.is_async,
+            returnType: original.data?.return_type,
+            typeHint: original.data?.type_hint,
+        };
+    }, [nodes]);
 
     if (!selectedNode) {
         return (
@@ -40,58 +56,17 @@ export function NodeInfoPanel() {
             )}
 
             <div className="node-info-stats">
-                {selectedNode.lineNumber && (
-                    <div className="node-info-stat">
-                        <span className="stat-label">Line</span>
-                        <span className="stat-value">{selectedNode.lineNumber}</span>
-                    </div>
-                )}
                 {selectedNode.childCount > 0 && (
                     <div className="node-info-stat">
                         <span className="stat-label">Children</span>
                         <span className="stat-value">{selectedNode.childCount}</span>
                     </div>
                 )}
-                {selectedNode.complexity && (
-                    <div className="node-info-stat">
-                        <span className="stat-label">Complexity</span>
-                        <span className="stat-value">{selectedNode.complexity}</span>
-                    </div>
-                )}
             </div>
 
-            {selectedNode.type === 'function' && (
-                <div className="node-info-function">
-                    {selectedNode.isAsync && <span className="node-badge">async</span>}
-                    {selectedNode.isMethod && <span className="node-badge">method</span>}
-                    {selectedNode.returnType && (
-                        <div className="node-info-return">
-                            <span className="stat-label">Returns</span>
-                            <code>{selectedNode.returnType}</code>
-                        </div>
-                    )}
-                </div>
-            )}
-
-            {selectedNode.type === 'class' && (
-                <div className="node-info-class">
-                    {selectedNode.isAbstract && <span className="node-badge">abstract</span>}
-                </div>
-            )}
-
-            {selectedNode.type === 'variable' && selectedNode.typeHint && (
-                <div className="node-info-variable">
-                    <span className="stat-label">Type</span>
-                    <code>{selectedNode.typeHint}</code>
-                </div>
-            )}
-
-            {selectedNode.docstring && (
-                <div className="node-info-docstring">
-                    <h3>Documentation</h3>
-                    <p>{selectedNode.docstring}</p>
-                </div>
-            )}
+            <div className="node-info-docstring">
+                {selectedNode.docstring && <p>{selectedNode.docstring}</p>}
+            </div>
         </div>
     );
 }

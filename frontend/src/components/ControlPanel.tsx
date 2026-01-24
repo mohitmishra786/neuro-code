@@ -2,41 +2,60 @@
  * NeuroCode Control Panel Component
  */
 
+import { useState } from 'react';
 import { useGraphStore } from '@/stores/graphStore';
 
 export function ControlPanel() {
-    const refresh = useGraphStore((state) => state.refresh);
-    const isLoading = useGraphStore((state) => state.isLoading);
+    // We cannot destructure everything if we want to optimize re-renders, but for now it's fine
+    // However, nodes might be updated frequently during layout.
     const nodes = useGraphStore((state) => state.nodes);
-    const expandedNodes = useGraphStore((state) => state.expandedNodes);
+    const loadProjectTree = useGraphStore((state) => state.loadProjectTree);
+    const loading = useGraphStore((state) => state.loading);
+
+    const [path, setPath] = useState('.');
+
+    const expandedCount = nodes.filter(n => n.data?.isExpanded).length;
+
+    const handleLoad = () => {
+        loadProjectTree(path);
+    };
 
     return (
         <div className="control-panel">
             <div className="control-panel-stats">
                 <div className="stat">
-                    <span className="stat-value">{nodes.size}</span>
+                    <span className="stat-value">{nodes.length}</span>
                     <span className="stat-label">Nodes</span>
                 </div>
                 <div className="stat">
-                    <span className="stat-value">{expandedNodes.size}</span>
+                    <span className="stat-value">{expandedCount}</span>
                     <span className="stat-label">Expanded</span>
                 </div>
             </div>
 
-            <div className="control-panel-actions">
+            <div className="control-panel-actions" style={{ display: 'flex', gap: '8px' }}>
+                <input
+                    type="text"
+                    value={path}
+                    onChange={(e) => setPath(e.target.value)}
+                    placeholder="Repo Path"
+                    style={{
+                        background: '#333',
+                        border: '1px solid #555',
+                        color: 'white',
+                        padding: '4px 8px',
+                        borderRadius: '4px',
+                        width: '200px'
+                    }}
+                />
                 <button
                     className="control-btn"
-                    onClick={refresh}
-                    disabled={isLoading}
-                    title="Refresh graph"
+                    onClick={handleLoad}
+                    disabled={loading}
+                    title="Load Repository"
+                    style={{ padding: '4px 12px', fontSize: '12px' }}
                 >
-                    <svg viewBox="0 0 20 20" fill="currentColor">
-                        <path
-                            fillRule="evenodd"
-                            d="M4 2a1 1 0 011 1v2.101a7.002 7.002 0 0111.601 2.566 1 1 0 11-1.885.666A5.002 5.002 0 005.999 7H9a1 1 0 010 2H4a1 1 0 01-1-1V3a1 1 0 011-1zm.008 9.057a1 1 0 011.276.61A5.002 5.002 0 0014.001 13H11a1 1 0 110-2h5a1 1 0 011 1v5a1 1 0 11-2 0v-2.101a7.002 7.002 0 01-11.601-2.566 1 1 0 01.61-1.276z"
-                            clipRule="evenodd"
-                        />
-                    </svg>
+                    {loading ? 'Loading...' : 'Load'}
                 </button>
             </div>
         </div>

@@ -12,6 +12,7 @@ import {
     SearchResponse,
     ReferencesResponse,
     GraphNode,
+    ProjectTreeNode,
 } from '@/types/graph.types';
 
 const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:8000';
@@ -243,9 +244,14 @@ export const api = {
         return fetchJson(`${API_BASE}/graph/clear`, { method: 'DELETE' });
     },
 
+    async getProjectTree(path: string, recursive = true): Promise<ProjectTreeNode> {
+        return fetchJson(`${API_BASE}/graph/tree?path=${encodeURIComponent(path)}&recursive=${recursive}`);
+    },
+
     /**
      * Health check
-     */
+     *
+    */
     async healthCheck(): Promise<{ status: string; version: string; neo4j: string }> {
         return fetchJson(`${API_BASE}/health`);
     },

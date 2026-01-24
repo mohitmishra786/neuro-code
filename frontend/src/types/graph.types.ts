@@ -151,3 +151,11 @@ export interface HeartbeatMessage extends WebSocketMessage {
     type: 'heartbeat';
     timestamp: number;
 }
+
+export interface ProjectTreeNode {
+    id: string;
+    type: NodeType | 'root' | 'package';
+    label?: string;
+    data?: Record<string, unknown>;
+    children?: ProjectTreeNode[];
+}

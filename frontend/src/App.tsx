@@ -3,7 +3,7 @@
  */
 
 import { useEffect } from 'react';
-import { GraphCanvas } from '@/components/GraphCanvas';
+import { FlowGraph } from '@/components/FlowGraph';
 import { SearchBar } from '@/components/SearchBar';
 import { NodeInfoPanel } from '@/components/NodeInfoPanel';
 import { Breadcrumbs } from '@/components/Breadcrumbs';
@@ -55,7 +55,7 @@ function App() {
 
             <main className="app-main">
                 <div className="graph-container">
-                    <GraphCanvas />
+                    <FlowGraph />
                 </div>
                 <aside className="sidebar">
                     <NodeInfoPanel />
