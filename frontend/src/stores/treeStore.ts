@@ -9,7 +9,7 @@ import { create } from 'zustand';
 import { Node, Edge, NodeChange, EdgeChange, applyNodeChanges, applyEdgeChanges } from 'reactflow';
 import { api } from '@/services/api';
 import { cache } from '@/services/cache';
-import { GraphNode, NodeType } from '@/types/graph.types';
+import { GraphNode, NodeType, isValidEdgeType } from '@/types/graph.types';
 
 // Tree node with visual properties
 export interface TreeNode extends GraphNode {
@@ -71,15 +71,6 @@ export const NODE_COLORS: Record<NodeType, string> = {
     variable: '#ec4899',  // Pink
     unknown: '#64748b',   // Slate
 };
-
-// Edge types
-export type EdgeType = 'contains' | 'calls' | 'imports' | 'inherits';
-
-const EDGE_TYPE_VALUES = ['contains', 'calls', 'imports', 'inherits'] as const;
-
-export function isValidEdgeType(value: unknown): value is EdgeType {
-    return typeof value === 'string' && EDGE_TYPE_VALUES.includes(value as EdgeType);
-}
 
 interface TreeState {
     // ReactFlow nodes and edges

@@ -75,6 +75,14 @@ export function isValidRelationshipType(value: unknown): value is RelationshipTy
     );
 }
 
+export type EdgeType = 'contains' | 'calls' | 'imports' | 'inherits';
+
+const EDGE_TYPE_VALUES = ['contains', 'calls', 'imports', 'inherits'] as const;
+
+export function isValidEdgeType(value: unknown): value is EdgeType {
+    return typeof value === 'string' && EDGE_TYPE_VALUES.includes(value as EdgeType);
+}
+
 export interface Viewport {
     x: number;
     y: number;
