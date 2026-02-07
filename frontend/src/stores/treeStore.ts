@@ -132,6 +132,17 @@ function toTreeNode(node: GraphNode, parentId?: string, depth: number = 0): Tree
     };
 }
 
+// Unique ID generator for cases where backend may return duplicates
+let idCounter = 0;
+function generateUniqueId(baseId: string): string {
+    return `${baseId}_${++idCounter}`;
+}
+
+// Check if ID already exists in cache
+function isIdUnique(id: string, nodeCache: ReadonlyMap<string, TreeNode>): boolean {
+    return !nodeCache.has(id);
+}
+
 // Convert TreeNode to ReactFlow Node
 function toReactFlowNode(node: TreeNode, isExpanded: boolean, isSelected: boolean): Node {
     return {
@@ -210,15 +221,33 @@ export const useTreeStore = create<TreeState>((set, get) => ({
             
             const newNodeCache = new Map<string, TreeNode>();
             const nodes: Node[] = [];
+            const seenIds = new Set<string>();
+            const duplicateIds: string[] = [];
             
             rootNodes.forEach((node, index) => {
-                const treeNode = toTreeNode(node, undefined, 0);
+                let nodeId = node.id;
+                
+                // Check for duplicate ID
+                if (!isIdUnique(nodeId, newNodeCache)) {
+                    if (!seenIds.has(nodeId)) {
+                        duplicateIds.push(nodeId);
+                    }
+                    nodeId = generateUniqueId(node.id);
+                }
+                
+                const treeNode = toTreeNode({ ...node, id: nodeId }, undefined, 0);
                 // Initial grid layout for root nodes
                 treeNode.x = (index % 4) * 200;
                 treeNode.y = Math.floor(index / 4) * 150;
-                newNodeCache.set(node.id, treeNode);
+                newNodeCache.set(nodeId, treeNode);
                 nodes.push(toReactFlowNode(treeNode, false, false));
+                seenIds.add(nodeId);
             });
+            
+            // Log duplicates for debugging
+            if (duplicateIds.length > 0) {
+                console.warn('[TreeStore] Duplicate root node IDs detected and fixed:', duplicateIds);
+            }
             
             set({
                 nodeCache: newNodeCache,
@@ -279,19 +308,40 @@ export const useTreeStore = create<TreeState>((set, get) => ({
             const newNodes: Node[] = [];
             const newEdges: Edge[] = [];
             
+            // Track seen IDs to detect duplicates
+            const seenIds = new Set<string>();
+            const duplicateIds: string[] = [];
+
             // Add children
             result.children.forEach((child, index) => {
-                const treeNode = toTreeNode(child, nodeId, parentDepth + 1);
+                let nodeId = child.id;
+                
+                // Check for duplicate ID
+                if (!isIdUnique(nodeId, newNodeCache)) {
+                    if (!seenIds.has(nodeId)) {
+                        duplicateIds.push(nodeId);
+                    }
+                    // Generate unique ID
+                    nodeId = generateUniqueId(child.id);
+                }
+                
+                const treeNode = toTreeNode({ ...child, id: nodeId }, nodeId, parentDepth + 1);
                 // Position below parent
                 const parentX = parentNode?.x ?? 0;
                 const parentY = parentNode?.y ?? 0;
                 treeNode.x = parentX + (index - result.children.length / 2) * 150;
                 treeNode.y = parentY + 120;
                 
-                newNodeCache.set(child.id, treeNode);
-                newNodes.push(toReactFlowNode(treeNode, false, child.id === selectedNodeId));
-                newEdges.push(createEdge(nodeId, child.id, 'contains'));
+                newNodeCache.set(nodeId, treeNode);
+                newNodes.push(toReactFlowNode(treeNode, false, nodeId === selectedNodeId));
+                newEdges.push(createEdge(nodeId, nodeId, 'contains'));
+                seenIds.add(nodeId);
             });
+            
+            // Log duplicates for debugging
+            if (duplicateIds.length > 0) {
+                console.warn('[TreeStore] Duplicate node IDs detected and fixed:', duplicateIds);
+            }
             
             // Add outgoing connections (calls, imports, inherits)
             result.outgoing.forEach((connection) => {

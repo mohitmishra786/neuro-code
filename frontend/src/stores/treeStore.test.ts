@@ -4,7 +4,7 @@
 
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { useTreeStore, NODE_COLORS } from './treeStore';
-import { isValidNodeType, NodeType, isValidEdgeType } from '@/types/graph.types';
+import { isValidNodeType, isValidEdgeType } from '@/types/graph.types';
 
 // Mock the API
 vi.mock('@/services/api', () => ({
@@ -260,6 +260,50 @@ describe('useTreeStore', () => {
         it('should return undefined for non-existent nodes', () => {
             const node = useTreeStore.getState().getNode('nonexistent');
             expect(node).toBeUndefined();
+        });
+    });
+
+    describe('duplicate node ID handling', () => {
+        it('should generate unique IDs when duplicates are detected in root nodes', async () => {
+            useTreeStore.getState().reset();
+            
+            const { api } = await import('@/services/api');
+            vi.mocked(api.getRootNodes).mockResolvedValue([
+                { id: 'duplicate', name: 'node1', type: 'class' as const, childCount: 1, isExpanded: false },
+                { id: 'duplicate', name: 'node2', type: 'class' as const, childCount: 1, isExpanded: false },
+            ]);
+            
+            await useTreeStore.getState().loadRootNodes();
+            
+            const { nodeCache } = useTreeStore.getState();
+            expect(nodeCache.size).toBe(2);
+            
+            const ids = Array.from(nodeCache.keys());
+            expect(ids[0]).not.toBe(ids[1]);
+            expect(ids.some(id => id.includes('duplicate'))).toBe(true);
+        });
+
+        it('should generate unique IDs when duplicates are detected in children', async () => {
+            useTreeStore.getState().reset();
+            
+            await useTreeStore.getState().loadRootNodes();
+            
+            const { api } = await import('@/services/api');
+            vi.mocked(api.expandNode).mockResolvedValue({
+                children: [
+                    { id: 'dupChild', name: 'Child1', type: 'function' as const, childCount: 0, isExpanded: false },
+                    { id: 'dupChild', name: 'Child2', type: 'function' as const, childCount: 0, isExpanded: false },
+                ],
+                outgoing: [],
+            });
+            
+            await useTreeStore.getState().expandNode('pkg1');
+            
+            const { nodeCache } = useTreeStore.getState();
+            const childIds = Array.from(nodeCache.keys()).filter(id => id.includes('dupChild'));
+            
+            expect(childIds.length).toBe(2);
+            expect(childIds[0]).not.toBe(childIds[1]);
         });
     });
 });
