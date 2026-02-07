@@ -227,12 +227,57 @@ class ProjectParser(LoggerMixin):
         return self.packages, self.modules, self.relationships
     
     def _discover_files(self) -> list[Path]:
-        """Find all Python files in the project."""
+        """
+        Find all Python files in the project.
+
+        Handles symlinks and prevents infinite loops from circular symlinks.
+
+        Returns:
+            Sorted list of Python file paths
+        """
         files = []
+        visited = set()
+        
         for file_path in self.root.rglob("*.py"):
-            if self._should_ignore(file_path):
+            # Resolve symlinks to actual path
+            try:
+                resolved_path = file_path.resolve(strict=False)
+            except (OSError, RuntimeError) as e:
+                self.log.warning(
+                    "path_resolution_failed",
+                    path=str(file_path),
+                    error=str(e),
+                )
                 continue
+            
+            # Check for symlink cycles
+            canonical_path = str(resolved_path)
+            if canonical_path in visited:
+                self.log.warning(
+                    "skipping_symlink_cycle",
+                    path=canonical_path,
+                )
+                continue
+            
+            visited.add(canonical_path)
+            
+            # Skip ignored paths
+            if self._should_ignore(resolved_path):
+                continue
+            
+            # Skip symlinks that point outside project (security)
+            try:
+                resolved_path.relative_to(self.root)
+            except ValueError:
+                self.log.warning(
+                    "skipping_external_symlink",
+                    path=str(file_path),
+                    target=str(resolved_path),
+                )
+                continue
+            
             files.append(file_path)
+        
         return sorted(files)
     
     def _should_ignore(self, path: Path) -> bool:
@@ -608,17 +653,25 @@ class ProjectParser(LoggerMixin):
     def _resolve_relative_import(
         self, current_package: str, module_name: str, relative_level: int
     ) -> str:
-        """Resolve a relative import to absolute module path."""
+        """
+        Resolve a relative import to absolute module path.
+
+        For example:
+        - `.module` (level=1) from `pkg.subpkg` -> `pkg.module`
+        - `..module` (level=2) from `pkg.subpkg.subsub` -> `pkg.module`
+        - `...module` (level=3) from `pkg.subpkg.subsub.deep` -> `pkg.module`
+        """
         if not current_package:
             return module_name
         
         parts = current_package.split(".")
         
-        # Go up n-1 levels (one dot means current package)
-        if relative_level > len(parts):
+        # Validate we can go up that many levels
+        if relative_level - 1 >= len(parts):
             return module_name
         
-        base_parts = parts[: len(parts) - relative_level + 1]
+        # Go up (relative_level - 1) levels from current package
+        base_parts = parts[: len(parts) - (relative_level - 1)]
         base = ".".join(base_parts)
         
         if module_name:

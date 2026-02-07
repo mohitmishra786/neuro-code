@@ -1,14 +1,15 @@
 """
 NeuroCode Search API Routes.
 
-Search endpoints for the graph.
+Search endpoints for graph with validation and security.
 Requires Python 3.11+.
 """
 
+import re
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
 
 from api.dependencies import require_neo4j_client
 from graph_db.neo4j_client import Neo4jClient
@@ -16,6 +17,50 @@ from utils.logger import get_logger
 
 router = APIRouter()
 logger = get_logger("api.search")
+
+
+class SearchQuery(BaseModel):
+    """Validated search query model."""
+
+    query: str
+    limit: int = 50
+    type_filter: str | None = None
+
+    @field_validator("query")
+    @classmethod
+    def validate_query(cls, v: str) -> str:
+        """
+        Validate and sanitize search query.
+
+        - Must not be empty
+        - Must be reasonable length
+        - Must not contain suspicious patterns
+        """
+        if not v or not v.strip():
+            raise ValueError("Search query cannot be empty")
+        
+        v = v.strip()
+        
+        if len(v) > 100:
+            raise ValueError("Search query too long (max 100 characters)")
+        
+        # Check for injection patterns (very basic, Neo4j query injection is the main concern)
+        injection_patterns = [
+            r';.*DROP',
+            r';.*DELETE',
+            r';.*INSERT',
+            r';.*MERGE',
+            r';.*CREATE',
+            r'union.*select',
+            r'--',
+            r'/\*.*\*/',
+        ]
+        
+        for pattern in injection_patterns:
+            if re.search(pattern, v, re.IGNORECASE):
+                raise ValueError("Invalid search query pattern detected")
+        
+        return v
 
 
 class SearchResult(BaseModel):
@@ -38,14 +83,9 @@ class SearchResponse(BaseModel):
     total: int
 
 
-@router.get("", response_model=SearchResponse)
+@router.post("", response_model=SearchResponse)
 async def search_nodes(
-    q: str = Query(..., min_length=1, max_length=100, description="Search query"),
-    limit: int = Query(default=50, ge=1, le=200, description="Maximum results"),
-    type_filter: str | None = Query(
-        default=None,
-        description="Filter by node type (module, class, function, variable)",
-    ),
+    request: SearchQuery,
     client: Neo4jClient = Depends(require_neo4j_client),
 ) -> SearchResponse:
     """
@@ -54,18 +94,27 @@ async def search_nodes(
     Uses fuzzy matching to find nodes by name or qualified name.
     Target latency: <200ms
     """
-    logger.debug("search_requested", query=q, limit=limit, type_filter=type_filter)
+    logger.debug("search_requested", query=request.query, limit=request.limit, type_filter=request.type_filter)
 
     try:
-        results = await client.search_nodes(q, limit=limit * 2)  # Fetch extra for filtering
+        # Escape special characters for Lucene query
+        escaped_query = request.query.replace("~", "\\~").replace("*", "\\*")
+
+        results = await client.search_nodes(escaped_query, limit=request.limit * 2)
 
         # Filter by type if specified
-        if type_filter:
-            type_filter = type_filter.lower()
+        if request.type_filter:
+            type_filter = request.type_filter.lower()
+            valid_types = {"module", "class", "function", "variable"}
+            if type_filter not in valid_types:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Invalid type filter. Must be one of: {', '.join(valid_types)}"
+                )
             results = [r for r in results if r.get("type") == type_filter]
 
         # Limit results
-        results = results[:limit]
+        results = results[:request.limit]
 
         search_results = [
             SearchResult(
@@ -81,13 +130,17 @@ async def search_nodes(
         ]
 
         return SearchResponse(
-            query=q,
+            query=request.query,
             results=search_results,
             total=len(search_results),
         )
 
+    except ValueError as e:
+        # Validation errors from SearchQuery
+        logger.warning("search_validation_failed", query=request.query, error=str(e))
+        raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
-        logger.error("search_failed", query=q, error=str(e))
+        logger.error("search_failed", query=request.query, error=str(e))
         raise HTTPException(status_code=500, detail=str(e))
 
 

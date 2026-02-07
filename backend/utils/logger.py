@@ -6,6 +6,7 @@ Requires Python 3.11+.
 """
 
 import logging
+import re
 import sys
 from typing import Any
 
@@ -13,6 +14,27 @@ import structlog
 from structlog.types import Processor
 
 from utils.config import get_settings
+
+
+_sensitive_keys = {"password", "token", "secret", "api_key", "private_key", "access_token", "refresh_token", "credentials", "auth"}
+
+
+def _sanitize_value(key: str, value: Any) -> Any:
+    """Sanitize sensitive values in logs."""
+    if isinstance(value, dict):
+        return {k: _sanitize_value(k, v) for k, v in value.items()}
+    elif isinstance(value, (list, tuple)):
+        return [_sanitize_value(key, v) for v in value]
+    elif key.lower() in _sensitive_keys:
+        return "***REDACTED***"
+    return value
+
+
+def _sanitize_event_dict(
+    logger: logging.Logger, method_name: str, event_dict: dict[str, Any]
+) -> dict[str, Any]:
+    """Sanitize sensitive data from event dict."""
+    return {k: _sanitize_value(k, v) for k, v in event_dict.items()}
 
 
 def _add_app_context(
@@ -53,6 +75,7 @@ def configure_logging() -> None:
         structlog.processors.StackInfoRenderer(),
         structlog.dev.set_exc_info,
         structlog.processors.TimeStamper(fmt="iso"),
+        _sanitize_event_dict,
         _add_app_context,
     ]
 

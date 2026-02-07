@@ -5,11 +5,13 @@ REST endpoints for graph operations.
 Requires Python 3.11+.
 """
 
+import os
 from pathlib import Path
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException, Query, BackgroundTasks
-from pydantic import BaseModel, Field
+from fastapi import APIRouter, Depends, HTTPException, Query, BackgroundTasks, Security
+from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
+from pydantic import BaseModel, Field, field_validator
 
 from api.dependencies import require_neo4j_client
 from graph_db.neo4j_client import Neo4jClient
@@ -17,9 +19,11 @@ from parser.tree_sitter_parser import TreeSitterParser
 from parser.relationship_extractor import RelationshipExtractor
 from merkle.change_detector import ChangeDetector
 from utils.logger import get_logger
+from utils.config import get_settings
 
 router = APIRouter()
 logger = get_logger("api.graph")
+security = HTTPBearer(auto_error=False)
 
 # Shared state for parser and change detector
 _parser = TreeSitterParser()
@@ -91,6 +95,30 @@ class ParseRequest(BaseModel):
     """Request model for parsing a codebase."""
 
     path: str = Field(..., description="Path to the Python codebase to parse")
+
+    @field_validator("path")
+    @classmethod
+    def validate_path(cls, v: str) -> str:
+        """Validate path to prevent directory traversal attacks."""
+        resolved = Path(v).resolve()
+        
+        # Check for path traversal attempts
+        if ".." in str(v):
+            raise ValueError("Path traversal not allowed")
+        
+        # Check if path exists and is accessible
+        if not resolved.exists():
+            raise ValueError(f"Path does not exist: {v}")
+        
+        # Only allow absolute paths or relative to current directory
+        settings = get_settings()
+        if hasattr(settings, 'allowed_parse_paths'):
+            allowed = [Path(p).resolve() for p in settings.allowed_parse_paths]
+            if not any(str(resolved).startswith(str(a)) for a in allowed):
+                raise ValueError(f"Path not in allowed directories: {v}")
+        
+        return str(resolved)
+
     recursive: bool = Field(default=True, description="Parse subdirectories recursively")
 
 
@@ -715,13 +743,23 @@ async def update_changed_files(
 
 @router.delete("/clear")
 async def clear_graph(
+    credentials: HTTPAuthorizationCredentials | None = Security(security),
     client: Neo4jClient = Depends(get_client),
 ) -> dict[str, str]:
     """
     Clear all nodes and relationships from the graph.
 
     WARNING: This is destructive and cannot be undone.
+    Requires API key authentication.
     """
+    settings = get_settings()
+    
+    # Validate API key if configured
+    if settings.api_key:
+        if credentials is None or credentials.credentials != settings.api_key:
+            logger.warning("unauthorized_clear_attempt")
+            raise HTTPException(status_code=401, detail="Invalid or missing API key")
+    
     logger.warning("clear_graph_requested")
 
     try:
