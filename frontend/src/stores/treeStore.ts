@@ -57,6 +57,39 @@ function setToArray<T>(set: ReadonlySet<T>): T[] {
     return Array.from(set);
 }
 
+// Build parent-to-children mapping for efficient descendant lookups
+function buildParentMap(nodeCache: ReadonlyMap<string, TreeNode>): Map<string, string[]> {
+    const parentMap = new Map<string, string[]>();
+    for (const [, node] of nodeCache) {
+        if (node.parentId) {
+            const children = parentMap.get(node.parentId) ?? [];
+            children.push(node.id);
+            parentMap.set(node.parentId, children);
+        }
+    }
+    return parentMap;
+}
+
+// Find all descendants using parent-to-children mapping (O(D) instead of O(D*C))
+function findDescendants(nodeId: string, parentMap: Map<string, string[]>): Set<string> {
+    const descendants = new Set<string>();
+    const queue = [nodeId];
+    
+    while (queue.length > 0) {
+        const currentId = queue.shift()!;
+        const children = parentMap.get(currentId) ?? [];
+        
+        for (const childId of children) {
+            if (!descendants.has(childId)) {
+                descendants.add(childId);
+                queue.push(childId);
+            }
+        }
+    }
+    
+    return descendants;
+}
+
 // Convert array to Set
 function arrayToSet<T>(array: readonly T[] | undefined): Set<T> {
     return new Set(array ?? []);
@@ -379,19 +412,11 @@ export const useTreeStore = create<TreeState>((set, get) => ({
             return;
         }
         
-        // Find all descendants to remove
-        const descendantIds = new Set<string>();
-        const queue = [nodeId];
+        // Build parent-to-children mapping for efficient descendant lookup
+        const parentMap = buildParentMap(nodeCache);
         
-        while (queue.length > 0) {
-            const currentId = queue.shift()!;
-            for (const [id, node] of nodeCache) {
-                if (node.parentId === currentId && id !== nodeId) {
-                    descendantIds.add(id);
-                    queue.push(id);
-                }
-            }
-        }
+        // Find descendants using efficient O(D) algorithm
+        const descendantIds = findDescendants(nodeId, parentMap);
         
         // Remove descendants from cache and nodes
         const newNodeCache = new Map(nodeCache);

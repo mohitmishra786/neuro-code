@@ -496,4 +496,60 @@ describe('useTreeStore', () => {
             expect(useTreeStore.getState().selectedNodeId).toBe('cls1');
         });
     });
+
+    describe('collapse performance optimization', () => {
+        it('should efficiently find descendants using parent map', async () => {
+            useTreeStore.getState().reset();
+            
+            await useTreeStore.getState().loadRootNodes();
+            await useTreeStore.getState().expandNode('pkg1');
+            
+            const { collapseNode, nodeCache } = useTreeStore.getState();
+            
+            const initialNodeCount = nodeCache.size;
+            expect(initialNodeCount).toBeGreaterThan(2);
+            
+            collapseNode('pkg1');
+            
+            expect(useTreeStore.getState().nodeCache.size).toBe(2);
+        });
+
+        it('should correctly remove deeply nested descendants', async () => {
+            useTreeStore.getState().reset();
+            
+            await useTreeStore.getState().loadRootNodes();
+            
+            const store = useTreeStore.getState();
+            
+            const mockNodeCache = new Map(store.nodeCache);
+            let parentId = 'pkg1';
+            
+            for (let i = 0; i < 100; i++) {
+                const nodeId = `deep_${i}`;
+                mockNodeCache.set(nodeId, {
+                    id: nodeId,
+                    name: `Deep Node ${i}`,
+                    type: 'function' as const,
+                    childCount: 0,
+                    isExpanded: false,
+                    parentId,
+                    depth: i,
+                });
+                parentId = nodeId;
+            }
+            
+            useTreeStore.setState({ 
+                nodeCache: mockNodeCache,
+                expandedIds: new Set(['pkg1']),
+            });
+            
+            store.collapseNode('pkg1');
+            
+            const { nodeCache, expandedIds } = useTreeStore.getState();
+            
+            // Only root nodes should remain
+            expect(nodeCache.size).toBe(2);
+            expect(expandedIds.has('pkg1')).toBe(false);
+        });
+    });
 });
