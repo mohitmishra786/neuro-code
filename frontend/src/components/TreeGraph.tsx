@@ -17,6 +17,11 @@ import ReactFlow, {
     BackgroundVariant,
     Node,
     Edge,
+    Position,
+    NodeChange,
+    EdgeChange,
+    applyNodeChanges,
+    applyEdgeChanges,
 } from 'reactflow';
 import dagre from 'dagre';
 import 'reactflow/dist/style.css';
@@ -25,7 +30,7 @@ import { CircleNode } from '@/components/nodes/CircleNode';
 import { TypedEdge } from '@/components/edges/TypedEdge';
 import { useTreeStore, NODE_COLORS } from '@/stores/treeStore';
 import { useThemeStore } from '@/stores/themeStore';
-import { NodeType, isValidNodeType } from '@/types/graph.types';
+import { isValidNodeType } from '@/types/graph.types';
 import { ErrorBoundary } from '@/components/ErrorBoundary';
 
 // Register custom node types
@@ -45,13 +50,8 @@ dagreGraph.setDefaultEdgeLabel(() => ({}));
 const NODE_WIDTH = 120;
 const NODE_HEIGHT = 100;
 
-interface LayoutedNode extends Node {
-    targetPosition?: 'left' | 'right' | 'top' | 'bottom';
-    sourcePosition?: 'left' | 'right' | 'top' | 'bottom';
-}
-
 interface LayoutedElements {
-    nodes: LayoutedNode[];
+    nodes: Node[];
     edges: Edge[];
 }
 
@@ -75,7 +75,7 @@ function getLayoutedElements(nodes: Node[], edges: Edge[], direction = 'TB'): La
 
     dagre.layout(dagreGraph);
 
-    const layoutedNodes: LayoutedNode[] = [];
+    const layoutedNodes: Node[] = [];
 
     for (const node of nodes) {
         const nodeWithPosition = dagreGraph.node(node.id);
@@ -86,8 +86,8 @@ function getLayoutedElements(nodes: Node[], edges: Edge[], direction = 'TB'): La
 
         layoutedNodes.push({
             ...node,
-            targetPosition: isHorizontal ? 'left' : 'top',
-            sourcePosition: isHorizontal ? 'right' : 'bottom',
+            targetPosition: isHorizontal ? Position.Left : Position.Top,
+            sourcePosition: isHorizontal ? Position.Right : Position.Bottom,
             position: {
                 x: nodeWithPosition.x - NODE_WIDTH / 2,
                 y: nodeWithPosition.y - NODE_HEIGHT / 2,
