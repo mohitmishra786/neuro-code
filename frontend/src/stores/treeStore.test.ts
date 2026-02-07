@@ -377,4 +377,87 @@ describe('useTreeStore', () => {
             expect(searchQuery).toBe('');
         });
     });
+
+    describe('breadcrumb safety', () => {
+        it('should handle circular parent references gracefully', async () => {
+            useTreeStore.getState().reset();
+            
+            await useTreeStore.getState().loadRootNodes();
+            
+            // Create a node with a circular reference
+            const circularNodeId = 'circular_node';
+            const store = useTreeStore.getState();
+            
+            // Manually set up a circular reference in the cache for testing
+            const mockNodeCache = new Map(store.nodeCache);
+            const circularNode = {
+                id: circularNodeId,
+                name: 'Circular',
+                type: 'class' as const,
+                childCount: 0,
+                isExpanded: false,
+                parentId: circularNodeId, // Self-referencing
+                depth: 1,
+            };
+            mockNodeCache.set(circularNodeId, circularNode);
+            
+            // Update the store's nodeCache
+            useTreeStore.setState({ nodeCache: mockNodeCache });
+            
+            store.selectNode(circularNodeId);
+            
+            // Should not hang or cause infinite loop
+            const { breadcrumbPath } = useTreeStore.getState();
+            expect(breadcrumbPath.length).toBe(1);
+            expect(breadcrumbPath[0].id).toBe(circularNodeId);
+        });
+
+        it('should limit deeply nested breadcrumb paths', async () => {
+            useTreeStore.getState().reset();
+            
+            await useTreeStore.getState().loadRootNodes();
+            
+            const store = useTreeStore.getState();
+            
+            // Create a deeply nested chain of nodes
+            const mockNodeCache = new Map(store.nodeCache);
+            let parentId = 'pkg1';
+            
+            for (let i = 0; i < 1005; i++) {
+                const nodeId = `node_${i}`;
+                mockNodeCache.set(nodeId, {
+                    id: nodeId,
+                    name: `Node ${i}`,
+                    type: 'function' as const,
+                    childCount: 0,
+                    isExpanded: false,
+                    parentId,
+                    depth: i,
+                });
+                parentId = nodeId;
+            }
+            
+            useTreeStore.setState({ nodeCache: mockNodeCache });
+            
+            store.selectNode('node_1004');
+            
+            // Should be limited to 1000 items max
+            const { breadcrumbPath } = useTreeStore.getState();
+            expect(breadcrumbPath.length).toBeLessThanOrEqual(1000);
+        });
+
+        it('should build correct breadcrumb path for normal nodes', async () => {
+            useTreeStore.getState().reset();
+            
+            await useTreeStore.getState().loadRootNodes();
+            await useTreeStore.getState().expandNode('pkg1');
+            
+            useTreeStore.getState().selectNode('cls1');
+            
+            const { breadcrumbPath } = useTreeStore.getState();
+            expect(breadcrumbPath.length).toBe(2);
+            expect(breadcrumbPath[0].id).toBe('pkg1');
+            expect(breadcrumbPath[1].id).toBe('cls1');
+        });
+    });
 });

@@ -430,13 +430,30 @@ export const useTreeStore = create<TreeState>((set, get) => ({
             },
         }));
         
-        // Build breadcrumb path
+        // Build breadcrumb path - with safety checks
         const breadcrumbPath: TreeNode[] = [];
         if (nodeId) {
+            const visitedIds = new Set<string>();
             let currentNode = nodeCache.get(nodeId);
+            
             while (currentNode) {
+                // Prevent infinite loops from circular references
+                if (visitedIds.has(currentNode.id)) {
+                    console.warn('[TreeStore] Circular reference detected in breadcrumb path');
+                    break;
+                }
+                visitedIds.add(currentNode.id);
+                
                 breadcrumbPath.unshift(currentNode);
-                currentNode = currentNode.parentId ? nodeCache.get(currentNode.parentId) : undefined;
+                
+                // Safety check for deeply nested paths
+                if (breadcrumbPath.length > 1000) {
+                    console.warn('[TreeStore] Breadcrumb path exceeds maximum depth');
+                    break;
+                }
+                
+                if (!currentNode.parentId) break;
+                currentNode = nodeCache.get(currentNode.parentId);
             }
         }
         
