@@ -5,6 +5,7 @@ Centralizes all configuration settings using Pydantic Settings.
 Requires Python 3.11+.
 """
 
+import os
 from functools import lru_cache
 from pathlib import Path
 from typing import Annotated
@@ -34,6 +35,7 @@ class Neo4jSettings(BaseSettings):
     database: str = Field(default="neo4j", description="Neo4j database name")
     max_connection_pool_size: int = Field(default=50, ge=1, le=100)
     connection_timeout: float = Field(default=30.0, ge=1.0)
+    query_timeout: float = Field(default=60.0, ge=5.0, le=300.0, description="Maximum query execution time in seconds")
 
 
 class ParserSettings(BaseSettings):
@@ -93,10 +95,22 @@ class APISettings(BaseSettings):
     port: int = Field(default=8000, ge=1, le=65535)
     debug: bool = Field(default=False)
     cors_origins: list[str] = Field(
-        default=["http://localhost:3000", "http://127.0.0.1:3000"],
-        description="Allowed CORS origins",
+        default_factory=lambda: (
+            ["http://localhost:3000", "http://127.0.0.1:3000"]
+            if os.getenv("ENVIRONMENT", "development").lower() in ("development", "dev", "local")
+            else []
+        ),
+        description="Allowed CORS origins (empty in production)",
     )
     request_timeout: float = Field(default=60.0, ge=1.0)
+    allowed_parse_paths: list[str] = Field(
+        default_factory=lambda: [os.getcwd()],
+        description="List of allowed base paths for parsing (prevents path traversal)"
+    )
+    api_key: str = Field(
+        default="",
+        description="API key for destructive operations (clear, delete)"
+    )
 
     @field_validator("cors_origins", mode="before")
     @classmethod

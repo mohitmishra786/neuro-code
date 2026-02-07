@@ -21,6 +21,30 @@ from utils.config import get_settings
 from utils.logger import LoggerMixin
 
 
+_allowed_relationship_types = {
+    "CONTAINS", "IMPORTS", "CALLS", "INSTANTIATES", "INHERITS",
+    "DECORATES", "DEFINES", "USES", "RETURNS", "RAISES"
+}
+
+
+def _validate_relationship_type(rel_type: str) -> str:
+    """
+    Validate and return relationship type name.
+
+    Args:
+        rel_type: Relationship type to validate
+
+    Returns:
+        Validated relationship type
+
+    Raises:
+        ValueError: If relationship type is not in whitelist
+    """
+    if rel_type not in _allowed_relationship_types:
+        raise ValueError(f"Invalid relationship type: {rel_type}")
+    return rel_type
+
+
 class Neo4jClient(LoggerMixin):
     """
     Async Neo4j client with connection pooling and retry logic.
@@ -39,9 +63,20 @@ class Neo4jClient(LoggerMixin):
         Establish connection to Neo4j.
 
         Creates an async driver with connection pooling.
+        Validates credentials before proceeding.
+
+        Raises:
+            ValueError: If credentials are invalid or missing
+            ServiceUnavailable: If Neo4j service is unreachable
         """
         if self._driver is not None:
             return
+
+        if not self._settings.uri or not self._settings.user:
+            raise ValueError("Neo4j URI and user must be configured")
+
+        if self._settings.password == "password" or self._settings.password == "":
+            raise ValueError("Neo4j password must be set (default 'password' is not allowed in production)")
 
         self._driver = AsyncGraphDatabase.driver(
             self._settings.uri,
@@ -50,9 +85,14 @@ class Neo4jClient(LoggerMixin):
             connection_timeout=self._settings.connection_timeout,
         )
 
-        # Verify connectivity
+        # Verify connectivity and authenticate
         try:
             await self._driver.verify_connectivity()
+            
+            # Verify authentication by executing a simple query
+            async with self._driver.session(database=self._settings.database) as session:
+                await session.run("RETURN 1 as test")
+            
             self.log.info(
                 "neo4j_connected",
                 uri=self._settings.uri,
@@ -60,6 +100,9 @@ class Neo4jClient(LoggerMixin):
             )
         except Exception as e:
             self.log.error("neo4j_connection_failed", error=str(e))
+            await self.close()
+            if "authentication" in str(e).lower() or "unauthorized" in str(e).lower():
+                raise ValueError(f"Neo4j authentication failed for user '{self._settings.user}'. Check credentials.") from e
             raise
 
     async def close(self) -> None:
@@ -92,24 +135,32 @@ class Neo4jClient(LoggerMixin):
         query: str,
         parameters: dict[str, Any] | None = None,
         retries: int = 3,
+        timeout: float | None = None,
     ) -> list[dict[str, Any]]:
         """
-        Execute a Cypher query with retry logic.
+        Execute a Cypher query with retry logic and timeout.
 
         Args:
             query: Cypher query string
             parameters: Query parameters
             retries: Number of retries on transient errors
+            timeout: Query timeout in seconds (default from settings)
 
         Returns:
             List of result records as dictionaries
+
+        Raises:
+            TimeoutError: If query execution exceeds timeout
         """
+        if timeout is None:
+            timeout = self._settings.connection_timeout
+
         last_error: Exception | None = None
 
         for attempt in range(retries):
             try:
                 async with self.session() as session:
-                    result = await session.run(query, parameters or {})
+                    result = await session.run(query, parameters or {}, timeout=timeout)
                     records = await result.data()
                     return records
 
@@ -134,6 +185,7 @@ class Neo4jClient(LoggerMixin):
         self,
         query: str,
         parameters: dict[str, Any] | None = None,
+        timeout: float | None = None,
     ) -> dict[str, Any]:
         """
         Execute a write query in a transaction.
@@ -141,12 +193,16 @@ class Neo4jClient(LoggerMixin):
         Args:
             query: Cypher query string
             parameters: Query parameters
+            timeout: Query timeout in seconds (default from settings)
 
         Returns:
             Summary of the write operation
         """
+        if timeout is None:
+            timeout = self._settings.connection_timeout
+
         async with self.session() as session:
-            result = await session.run(query, parameters or {})
+            result = await session.run(query, parameters or {}, timeout=timeout)
             summary = await result.consume()
             return {
                 "nodes_created": summary.counters.nodes_created,
@@ -389,16 +445,22 @@ class Neo4jClient(LoggerMixin):
 
         Args:
             rel: Relationship to create
+
+        Raises:
+            ValueError: If relationship type is not valid
         """
-        rel_type = rel.relationship_type.value.upper()
-        props = ", ".join(f"r.{k} = ${k}" for k in rel.properties.keys())
+        rel_type = _validate_relationship_type(rel.relationship_type.value.upper())
+        
+        prop_names = list(rel.properties.keys())
+        prop_setters = "\n            ".join(f"r.{k} = ${k}" for k in prop_names)
 
         query = f"""
         MATCH (source {{id: $source_id}})
         MATCH (target {{id: $target_id}})
         MERGE (source)-[r:{rel_type}]->(target)
-        {f'SET {props}' if props else ''}
+        {f'SET {prop_setters}' if prop_setters else ''}
         """
+        
         params = {
             "source_id": str(rel.source_id),
             "target_id": str(rel.target_id),

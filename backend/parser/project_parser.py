@@ -608,17 +608,25 @@ class ProjectParser(LoggerMixin):
     def _resolve_relative_import(
         self, current_package: str, module_name: str, relative_level: int
     ) -> str:
-        """Resolve a relative import to absolute module path."""
+        """
+        Resolve a relative import to absolute module path.
+
+        For example:
+        - `.module` (level=1) from `pkg.subpkg` -> `pkg.module`
+        - `..module` (level=2) from `pkg.subpkg.subsub` -> `pkg.module`
+        - `...module` (level=3) from `pkg.subpkg.subsub.deep` -> `pkg.module`
+        """
         if not current_package:
             return module_name
         
         parts = current_package.split(".")
         
-        # Go up n-1 levels (one dot means current package)
-        if relative_level > len(parts):
+        # Validate we can go up that many levels
+        if relative_level - 1 >= len(parts):
             return module_name
         
-        base_parts = parts[: len(parts) - relative_level + 1]
+        # Go up (relative_level - 1) levels from current package
+        base_parts = parts[: len(parts) - (relative_level - 1)]
         base = ".".join(base_parts)
         
         if module_name:
