@@ -8,6 +8,7 @@ Requires Python 3.11+.
 import time
 from pathlib import Path
 from typing import Iterator
+from collections import deque
 
 import tree_sitter_python as tspython
 from tree_sitter import Language, Parser, Node, Tree
@@ -23,6 +24,7 @@ from parser.models import (
     VariableInfo,
 )
 from utils.logger import LoggerMixin
+from utils.config import get_settings
 
 
 class TreeSitterParser(LoggerMixin):
@@ -32,12 +34,22 @@ class TreeSitterParser(LoggerMixin):
     Provides incremental parsing, error tolerance, and detailed AST extraction.
     """
 
-    def __init__(self) -> None:
-        """Initialize the Tree-sitter parser with Python language."""
+    def __init__(self, max_depth: int = 1000) -> None:
+        """
+        Initialize Tree-sitter parser with Python language.
+
+        Args:
+            max_depth: Maximum recursion depth for parsing (prevents stack overflow)
+        """
         self._language = Language(tspython.language())
         self._parser = Parser(self._language)
+        
+        # Set maximum recursion depth to prevent stack overflow on deeply nested code
+        self._parser.set_max_depth(max_depth)
+        
         self._source: bytes = b""
         self._tree: Tree | None = None
+        self._max_depth = max_depth
 
     def parse_file(self, file_path: Path) -> ModuleInfo:
         """
