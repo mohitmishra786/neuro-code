@@ -373,7 +373,7 @@ export const useTreeStore = create<TreeState>((set, get) => ({
     },
 
     collapseNode: (nodeId: string) => {
-        const { expandedIds, nodeCache } = get();
+        const { expandedIds, nodeCache, selectedNodeId } = get();
         
         if (!expandedIds.has(nodeId)) {
             return;
@@ -401,11 +401,15 @@ export const useTreeStore = create<TreeState>((set, get) => ({
         newExpandedIds.delete(nodeId);
         descendantIds.forEach(id => newExpandedIds.delete(id));
         
+        // Clear selectedNodeId if the selected node is being removed
+        const shouldClearSelection = selectedNodeId !== null && descendantIds.has(selectedNodeId);
+        
         set(state => ({
             nodeCache: newNodeCache,
             nodes: state.nodes.filter(n => !descendantIds.has(n.id)),
             edges: state.edges.filter(e => !descendantIds.has(e.target) && !descendantIds.has(e.source)),
             expandedIds: newExpandedIds,
+            selectedNodeId: shouldClearSelection ? null : state.selectedNodeId,
         }));
     },
 
@@ -420,6 +424,13 @@ export const useTreeStore = create<TreeState>((set, get) => ({
 
     selectNode: (nodeId: string | null) => {
         const { nodeCache } = get();
+        
+        // Validate that the node exists if not null
+        if (nodeId !== null && !nodeCache.has(nodeId)) {
+            console.warn('[TreeStore] Attempted to select non-existent node:', nodeId);
+            set({ selectedNodeId: null });
+            return;
+        }
         
         // Update node selection state
         const updatedNodes = get().nodes.map(node => ({

@@ -384,11 +384,9 @@ describe('useTreeStore', () => {
             
             await useTreeStore.getState().loadRootNodes();
             
-            // Create a node with a circular reference
             const circularNodeId = 'circular_node';
             const store = useTreeStore.getState();
             
-            // Manually set up a circular reference in the cache for testing
             const mockNodeCache = new Map(store.nodeCache);
             const circularNode = {
                 id: circularNodeId,
@@ -396,17 +394,15 @@ describe('useTreeStore', () => {
                 type: 'class' as const,
                 childCount: 0,
                 isExpanded: false,
-                parentId: circularNodeId, // Self-referencing
+                parentId: circularNodeId,
                 depth: 1,
             };
             mockNodeCache.set(circularNodeId, circularNode);
             
-            // Update the store's nodeCache
             useTreeStore.setState({ nodeCache: mockNodeCache });
             
             store.selectNode(circularNodeId);
             
-            // Should not hang or cause infinite loop
             const { breadcrumbPath } = useTreeStore.getState();
             expect(breadcrumbPath.length).toBe(1);
             expect(breadcrumbPath[0].id).toBe(circularNodeId);
@@ -419,7 +415,6 @@ describe('useTreeStore', () => {
             
             const store = useTreeStore.getState();
             
-            // Create a deeply nested chain of nodes
             const mockNodeCache = new Map(store.nodeCache);
             let parentId = 'pkg1';
             
@@ -441,7 +436,6 @@ describe('useTreeStore', () => {
             
             store.selectNode('node_1004');
             
-            // Should be limited to 1000 items max
             const { breadcrumbPath } = useTreeStore.getState();
             expect(breadcrumbPath.length).toBeLessThanOrEqual(1000);
         });
@@ -458,6 +452,48 @@ describe('useTreeStore', () => {
             expect(breadcrumbPath.length).toBe(2);
             expect(breadcrumbPath[0].id).toBe('pkg1');
             expect(breadcrumbPath[1].id).toBe('cls1');
+        });
+    });
+
+    describe('stale selectedNodeId handling', () => {
+        it('should clear selectedNodeId when selected node is collapsed', async () => {
+            useTreeStore.getState().reset();
+            
+            await useTreeStore.getState().loadRootNodes();
+            await useTreeStore.getState().expandNode('pkg1');
+            
+            useTreeStore.getState().selectNode('cls1');
+            expect(useTreeStore.getState().selectedNodeId).toBe('cls1');
+            
+            useTreeStore.getState().collapseNode('pkg1');
+            
+            const { selectedNodeId } = useTreeStore.getState();
+            expect(selectedNodeId).toBe(null);
+        });
+
+        it('should validate node exists before selecting', async () => {
+            useTreeStore.getState().reset();
+            
+            await useTreeStore.getState().loadRootNodes();
+            
+            useTreeStore.getState().selectNode('nonexistent');
+            
+            const { selectedNodeId } = useTreeStore.getState();
+            expect(selectedNodeId).toBe(null);
+        });
+
+        it('should not clear selectedNodeId when collapsing different branch', async () => {
+            useTreeStore.getState().reset();
+            
+            await useTreeStore.getState().loadRootNodes();
+            await useTreeStore.getState().expandNode('pkg1');
+            
+            useTreeStore.getState().selectNode('cls1');
+            expect(useTreeStore.getState().selectedNodeId).toBe('cls1');
+            
+            useTreeStore.getState().collapseNode('mod1');
+            
+            expect(useTreeStore.getState().selectedNodeId).toBe('cls1');
         });
     });
 });
