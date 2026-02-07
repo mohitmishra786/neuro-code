@@ -4,6 +4,7 @@
 
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { useTreeStore, NODE_COLORS } from './treeStore';
+import { isValidNodeType, NodeType } from '@/types/graph.types';
 
 // Mock the API
 vi.mock('@/services/api', () => ({
@@ -41,7 +42,6 @@ vi.mock('@/services/cache', () => ({
 
 describe('useTreeStore', () => {
     beforeEach(() => {
-        // Reset the store before each test
         useTreeStore.getState().reset();
     });
 
@@ -53,6 +53,26 @@ describe('useTreeStore', () => {
             expect(NODE_COLORS.function).toBeDefined();
             expect(NODE_COLORS.variable).toBeDefined();
             expect(NODE_COLORS.unknown).toBeDefined();
+        });
+    });
+
+    describe('isValidNodeType', () => {
+        it('should validate correct node types', () => {
+            expect(isValidNodeType('package')).toBe(true);
+            expect(isValidNodeType('module')).toBe(true);
+            expect(isValidNodeType('class')).toBe(true);
+            expect(isValidNodeType('function')).toBe(true);
+            expect(isValidNodeType('variable')).toBe(true);
+            expect(isValidNodeType('unknown')).toBe(true);
+        });
+
+        it('should reject invalid node types', () => {
+            expect(isValidNodeType('invalid')).toBe(false);
+            expect(isValidNodeType('')).toBe(false);
+            expect(isValidNodeType(123)).toBe(false);
+            expect(isValidNodeType(null)).toBe(false);
+            expect(isValidNodeType(undefined)).toBe(false);
+            expect(isValidNodeType({})).toBe(false);
         });
     });
 

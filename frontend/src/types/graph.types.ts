@@ -6,6 +6,14 @@
 
 export type NodeType = 'package' | 'module' | 'class' | 'function' | 'variable' | 'unknown';
 
+const NODE_TYPE_VALUES = ['package', 'module', 'class', 'function', 'variable', 'unknown'] as const;
+
+export function isValidNodeType(value: unknown): value is NodeType {
+    return typeof value === 'string' && NODE_TYPE_VALUES.includes(value as NodeType);
+}
+
+export type ValidNodeType = typeof NODE_TYPE_VALUES[number];
+
 export type RelationshipType =
     | 'CONTAINS'
     | 'IMPORTS'
