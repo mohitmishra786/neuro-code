@@ -9,7 +9,7 @@ import { create } from 'zustand';
 import { Node, Edge, NodeChange, EdgeChange, applyNodeChanges, applyEdgeChanges } from 'reactflow';
 import { api } from '@/services/api';
 import { cache } from '@/services/cache';
-import { GraphNode, NodeType } from '@/types/graph.types';
+import { GraphNode, NodeType, isValidEdgeType } from '@/types/graph.types';
 
 // Tree node with visual properties
 export interface TreeNode extends GraphNode {
@@ -17,6 +17,49 @@ export interface TreeNode extends GraphNode {
     depth: number;
     x?: number;
     y?: number;
+}
+
+// Serializable node cache entry
+interface NodeCacheEntry {
+    node: TreeNode;
+    timestamp: number;
+}
+
+// Serializable expansion state
+interface ExpansionState {
+    expandedIds: string[];
+    isExpanding: string[];
+}
+
+// Convert Map to serializable format
+function mapToSerializable(map: Map<string, TreeNode>): Record<string, NodeCacheEntry> {
+    const record: Record<string, NodeCacheEntry> = {};
+    const now = Date.now();
+    for (const [id, node] of map) {
+        record[id] = { node, timestamp: now };
+    }
+    return record;
+}
+
+// Convert serializable format back to Map
+function serializableToMap(record: Record<string, NodeCacheEntry> | undefined): Map<string, TreeNode> {
+    const map = new Map<string, TreeNode>();
+    if (record) {
+        for (const [id, entry] of Object.entries(record)) {
+            map.set(id, entry.node);
+        }
+    }
+    return map;
+}
+
+// Convert Set to array
+function setToArray<T>(set: ReadonlySet<T>): T[] {
+    return Array.from(set);
+}
+
+// Convert array to Set
+function arrayToSet<T>(array: readonly T[] | undefined): Set<T> {
+    return new Set(array ?? []);
 }
 
 // Node colors by type
@@ -29,36 +72,33 @@ export const NODE_COLORS: Record<NodeType, string> = {
     unknown: '#64748b',   // Slate
 };
 
-// Edge types
-export type EdgeType = 'contains' | 'calls' | 'imports' | 'inherits';
-
 interface TreeState {
     // ReactFlow nodes and edges
-    nodes: Node[];
-    edges: Edge[];
-    
+    nodes: readonly Node[];
+    edges: readonly Edge[];
+
     // Node cache for lazy loading
-    nodeCache: Map<string, TreeNode>;
-    
+    nodeCache: ReadonlyMap<string, TreeNode>;
+
     // Expansion state
-    expandedIds: Set<string>;
-    
+    expandedIds: ReadonlySet<string>;
+
     // Selection state
     selectedNodeId: string | null;
     hoveredNodeId: string | null;
-    
+
     // Breadcrumb path
-    breadcrumbPath: TreeNode[];
-    
+    breadcrumbPath: readonly TreeNode[];
+
     // Loading state
     isLoading: boolean;
-    isExpanding: Set<string>;
+    isExpanding: ReadonlySet<string>;
     error: string | null;
-    
+
     // Search
     searchQuery: string;
-    searchResults: GraphNode[];
-    
+    searchResults: readonly GraphNode[];
+
     // Actions
     loadRootNodes: () => Promise<void>;
     expandNode: (nodeId: string) => Promise<void>;
@@ -67,16 +107,16 @@ interface TreeState {
     selectNode: (nodeId: string | null) => void;
     hoverNode: (nodeId: string | null) => void;
     focusNode: (nodeId: string) => Promise<void>;
-    
+
     // ReactFlow handlers
-    onNodesChange: (changes: NodeChange[]) => void;
-    onEdgesChange: (changes: EdgeChange[]) => void;
-    
+    onNodesChange: (changes: readonly NodeChange[]) => void;
+    onEdgesChange: (changes: readonly EdgeChange[]) => void;
+
     // Search
     setSearchQuery: (query: string) => void;
     search: (query: string) => Promise<void>;
     navigateToSearchResult: (nodeId: string) => Promise<void>;
-    
+
     // Utilities
     getNode: (nodeId: string) => TreeNode | undefined;
     isExpanded: (nodeId: string) => boolean;

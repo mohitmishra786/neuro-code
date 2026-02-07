@@ -15,6 +15,8 @@ import ReactFlow, {
     useReactFlow,
     ReactFlowProvider,
     BackgroundVariant,
+    Node,
+    Edge,
 } from 'reactflow';
 import dagre from 'dagre';
 import 'reactflow/dist/style.css';
@@ -23,7 +25,8 @@ import { CircleNode } from '@/components/nodes/CircleNode';
 import { TypedEdge } from '@/components/edges/TypedEdge';
 import { useTreeStore, NODE_COLORS } from '@/stores/treeStore';
 import { useThemeStore } from '@/stores/themeStore';
-import { NodeType } from '@/types/graph.types';
+import { NodeType, isValidNodeType } from '@/types/graph.types';
+import { ErrorBoundary } from '@/components/ErrorBoundary';
 
 // Register custom node types
 const nodeTypes: NodeTypes = {
@@ -42,9 +45,19 @@ dagreGraph.setDefaultEdgeLabel(() => ({}));
 const NODE_WIDTH = 120;
 const NODE_HEIGHT = 100;
 
-function getLayoutedElements(nodes: any[], edges: any[], direction = 'TB') {
+interface LayoutedNode extends Node {
+    targetPosition?: 'left' | 'right' | 'top' | 'bottom';
+    sourcePosition?: 'left' | 'right' | 'top' | 'bottom';
+}
+
+interface LayoutedElements {
+    nodes: LayoutedNode[];
+    edges: Edge[];
+}
+
+function getLayoutedElements(nodes: Node[], edges: Edge[], direction = 'TB'): LayoutedElements {
     const isHorizontal = direction === 'LR';
-    dagreGraph.setGraph({ 
+    dagreGraph.setGraph({
         rankdir: direction,
         nodesep: 80,
         ranksep: 100,
@@ -52,23 +65,26 @@ function getLayoutedElements(nodes: any[], edges: any[], direction = 'TB') {
         marginy: 50,
     });
 
-    nodes.forEach((node) => {
+    for (const node of nodes) {
         dagreGraph.setNode(node.id, { width: NODE_WIDTH, height: NODE_HEIGHT });
-    });
+    }
 
-    edges.forEach((edge) => {
+    for (const edge of edges) {
         dagreGraph.setEdge(edge.source, edge.target);
-    });
+    }
 
     dagre.layout(dagreGraph);
 
-    const layoutedNodes = nodes.map((node) => {
+    const layoutedNodes: LayoutedNode[] = [];
+
+    for (const node of nodes) {
         const nodeWithPosition = dagreGraph.node(node.id);
         if (!nodeWithPosition) {
-            return node;
+            layoutedNodes.push(node);
+            continue;
         }
-        
-        return {
+
+        layoutedNodes.push({
             ...node,
             targetPosition: isHorizontal ? 'left' : 'top',
             sourcePosition: isHorizontal ? 'right' : 'bottom',
@@ -76,8 +92,8 @@ function getLayoutedElements(nodes: any[], edges: any[], direction = 'TB') {
                 x: nodeWithPosition.x - NODE_WIDTH / 2,
                 y: nodeWithPosition.y - NODE_HEIGHT / 2,
             },
-        };
-    });
+        });
+    }
 
     return { nodes: layoutedNodes, edges };
 }
@@ -105,7 +121,7 @@ function TreeGraphInner() {
     }, [loadRootNodes]);
     
     // Apply dagre layout when nodes/edges change
-    const layoutedElements = useMemo(() => {
+    const layoutedElements: LayoutedElements = useMemo(() => {
         if (nodes.length === 0) return { nodes: [], edges: [] };
         return getLayoutedElements(nodes, edges);
     }, [nodes, edges]);
@@ -134,14 +150,15 @@ function TreeGraphInner() {
     }, [selectedNodeId, layoutedElements.nodes, setCenter]);
     
     // Handle node click
-    const handleNodeClick = useCallback((_: React.MouseEvent, node: any) => {
+    const handleNodeClick = useCallback((_: React.MouseEvent, node: Node) => {
         selectNode(node.id);
     }, [selectNode]);
-    
+
     // Handle node double click (expand/collapse)
-    const handleNodeDoubleClick = useCallback((_: React.MouseEvent, node: any) => {
+    const handleNodeDoubleClick = useCallback((_: React.MouseEvent, node: Node) => {
         const nodeData = node.data;
-        if (nodeData.childCount > 0) {
+        const childCount = typeof nodeData?.childCount === 'number' ? nodeData.childCount : 0;
+        if (childCount > 0) {
             toggleNode(node.id);
         }
     }, [toggleNode]);
@@ -152,9 +169,12 @@ function TreeGraphInner() {
     }, [selectNode]);
     
     // MiniMap node color
-    const minimapNodeColor = useCallback((node: any) => {
-            const nodeType: NodeType = node.data?.nodeType as NodeType;
-            return NODE_COLORS[nodeType] || NODE_COLORS.unknown;
+    const minimapNodeColor = useCallback((node: Node): string => {
+        const nodeType = node.data?.nodeType;
+        if (typeof nodeType === 'string' && isValidNodeType(nodeType)) {
+            return NODE_COLORS[nodeType];
+        }
+        return NODE_COLORS.unknown;
     }, []);
     
     if (isLoading && nodes.length === 0) {
@@ -231,11 +251,21 @@ function TreeGraphInner() {
     );
 }
 
-// Wrap with ReactFlowProvider
+// Wrap with ReactFlowProvider and ErrorBoundary
 export function TreeGraph() {
     return (
         <ReactFlowProvider>
-            <TreeGraphInner />
+            <ErrorBoundary
+                fallback={
+                    <div className="tree-graph-error">
+                        <h3>Graph Error</h3>
+                        <p>Failed to render the graph. Please try refreshing the page.</p>
+                        <button onClick={() => window.location.reload()}>Refresh</button>
+                    </div>
+                }
+            >
+                <TreeGraphInner />
+            </ErrorBoundary>
         </ReactFlowProvider>
     );
 }

@@ -7,19 +7,33 @@
 
 import { memo, useCallback } from 'react';
 import { Handle, Position, NodeProps } from 'reactflow';
-import { NodeType } from '@/types/graph.types';
+import { NodeType, isValidNodeType } from '@/types/graph.types';
 import { NODE_COLORS, useTreeStore } from '@/stores/treeStore';
 
 interface CircleNodeData {
-    label: string;
-    nodeType: NodeType;
-    childCount: number;
-    isExpanded: boolean;
-    isSelected: boolean;
-    qualifiedName?: string;
-    docstring?: string;
-    isAsync?: boolean;
-    complexity?: number;
+    readonly label: string;
+    readonly nodeType: NodeType;
+    readonly childCount: number;
+    readonly isExpanded: boolean;
+    readonly isSelected: boolean;
+    readonly qualifiedName?: string;
+    readonly docstring?: string;
+    readonly isAsync?: boolean;
+    readonly complexity?: number;
+}
+
+function validateNodeType(value: unknown): NodeType {
+    if (typeof value !== 'string' || !isValidNodeType(value)) {
+        return 'unknown';
+    }
+    return value;
+}
+
+function getOptionalNumber(value: unknown): number | undefined {
+    if (typeof value === 'number' && Number.isFinite(value)) {
+        return value;
+    }
+    return undefined;
 }
 
 // Alternative text icons for node types
@@ -36,11 +50,17 @@ function CircleNodeComponent({ id, data, selected }: NodeProps<CircleNodeData>) 
     const toggleNode = useTreeStore((state) => state.toggleNode);
     const selectNode = useTreeStore((state) => state.selectNode);
     const isExpanding = useTreeStore((state) => state.isExpanding.has(id));
-    
-    const { label, nodeType, childCount, isExpanded, qualifiedName, isAsync, complexity } = data;
-    
-    const color = NODE_COLORS[nodeType] || NODE_COLORS.unknown;
-    const icon = NodeLetters[nodeType] || '?';
+
+    const label = data?.label ?? 'Unknown';
+    const validatedNodeType = validateNodeType(data?.nodeType);
+    const childCount = typeof data?.childCount === 'number' ? data.childCount : 0;
+    const isExpanded = data?.isExpanded ?? false;
+    const qualifiedName = data?.qualifiedName;
+    const isAsync = data?.isAsync ?? false;
+    const complexity = getOptionalNumber(data?.complexity);
+
+    const color = NODE_COLORS[validatedNodeType] || NODE_COLORS.unknown;
+    const icon = NodeLetters[validatedNodeType] || '?';
     
     const handleClick = useCallback((e: React.MouseEvent) => {
         e.stopPropagation();

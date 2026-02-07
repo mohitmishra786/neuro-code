@@ -13,40 +13,78 @@ import {
     ReferencesResponse,
     GraphNode,
     ProjectTreeNode,
+    isValidApiNode,
+    isValidSearchResponse,
+    isValidRootNodesResponse,
+    isValidChildrenResponse,
+    isValidAncestorsResponse,
 } from '@/types/graph.types';
+import { ApiError, NeuroCodeError, ErrorCodes } from '@/types/errors';
 
 const API_BASE = 'http://localhost:8000';
 
-class ApiError extends Error {
-    constructor(
-        public status: number,
-        message: string,
-    ) {
-        super(message);
-        this.name = 'ApiError';
-    }
+// Request deduplication with cancellation support
+const pendingRequests = new Map<string, { promise: Promise<unknown>; controller: AbortController }>();
+
+function createAbortController(): AbortController {
+    return new AbortController();
 }
 
-// Request deduplication
-const pendingRequests = new Map<string, Promise<unknown>>();
-
-async function dedupedFetch<T>(key: string, fetcher: () => Promise<T>): Promise<T> {
-    const pending = pendingRequests.get(key);
-    if (pending) {
-        return pending as Promise<T>;
+async function dedupedFetch<T>(
+    key: string,
+    fetcher: (signal: AbortSignal) => Promise<T>,
+    options?: { timeout?: number },
+): Promise<T> {
+    const existing = pendingRequests.get(key);
+    if (existing) {
+        return existing.promise as Promise<T>;
     }
 
-    const promise = fetcher().finally(() => {
-        pendingRequests.delete(key);
-    });
+    const controller = createAbortController();
+    const timeoutId = options?.timeout
+        ? window.setTimeout(() => controller.abort(), options.timeout)
+        : null;
 
-    pendingRequests.set(key, promise);
+    const promise = (async () => {
+        try {
+            const result = await fetcher(controller.signal);
+            return result;
+        } finally {
+            pendingRequests.delete(key);
+            if (timeoutId) {
+                clearTimeout(timeoutId);
+            }
+        }
+    })();
+
+    pendingRequests.set(key, { promise, controller });
     return promise;
 }
 
-async function fetchJson<T>(url: string, options?: RequestInit): Promise<T> {
+// Cancel a pending request
+export function cancelRequest(key: string): void {
+    const existing = pendingRequests.get(key);
+    if (existing) {
+        existing.controller.abort();
+        pendingRequests.delete(key);
+    }
+}
+
+// Cancel all pending requests
+export function cancelAllRequests(): void {
+    for (const [, { controller }] of pendingRequests) {
+        controller.abort();
+    }
+    pendingRequests.clear();
+}
+
+async function fetchJson<T>(
+    url: string,
+    options?: RequestInit & { signal?: AbortSignal },
+): Promise<T> {
     const response = await fetch(url, {
         ...options,
+        signal: options?.signal,
         headers: {
             'Content-Type': 'application/json',
             ...options?.headers,
@@ -54,11 +92,24 @@ async function fetchJson<T>(url: string, options?: RequestInit): Promise<T> {
     });
 
     if (!response.ok) {
-        const error = await response.json().catch(() => ({ message: 'Unknown error' }));
-        throw new ApiError(response.status, error.message || error.detail || 'Request failed');
+        const errorText = await response.text();
+        let errorMessage = 'Unknown error';
+        try {
+            const errorJson = JSON.parse(errorText);
+            errorMessage = errorJson?.message || errorJson?.detail || errorText;
+        } catch {
+            errorMessage = errorText || 'Unknown error';
+        }
+        throw new ApiError(response.status, errorMessage);
     }
 
-    return response.json();
+    const text = await response.text();
+    if (!text) {
+        return {} as T;
+    }
+
+    const json = JSON.parse(text);
+    return json as T;
 }
 
 function apiNodeToGraphNode(node: ApiNode, isExpanded = false): GraphNode {
@@ -82,9 +133,9 @@ function apiNodeToGraphNode(node: ApiNode, isExpanded = false): GraphNode {
 
 // Entry point response type
 interface EntryPointResponse {
-    entry_point: ApiNode | null;
-    imports: ApiNode[];
-    all_modules: ApiNode[];
+    readonly entry_point: ApiNode | null;
+    readonly imports: readonly ApiNode[];
+    readonly all_modules: readonly ApiNode[];
 }
 
 export const api = {
@@ -96,8 +147,11 @@ export const api = {
         imports: GraphNode[];
         allModules: GraphNode[];
     }> {
-        return dedupedFetch('entry-point', async () => {
-            const response = await fetchJson<EntryPointResponse>(`${API_BASE}/graph/entry-point`);
+        return dedupedFetch('entry-point', async (signal) => {
+            const response = await fetchJson<EntryPointResponse>(
+                `${API_BASE}/graph/entry-point`,
+                { signal },
+            );
             return {
                 entryPoint: response.entry_point ? apiNodeToGraphNode(response.entry_point) : null,
                 imports: response.imports.map((n) => apiNodeToGraphNode(n)),
@@ -110,9 +164,15 @@ export const api = {
      * Get root-level modules
      */
     async getRootNodes(): Promise<GraphNode[]> {
-        return dedupedFetch('root', async () => {
-            const response = await fetchJson<RootNodesResponse>(`${API_BASE}/graph/root`);
-            return response.nodes.map((n) => apiNodeToGraphNode(n));
+        return dedupedFetch('root', async (signal) => {
+            const rawResponse = await fetchJson<unknown>(
+                `${API_BASE}/graph/root`,
+                { signal },
+            );
+            if (!isValidRootNodesResponse(rawResponse)) {
+                throw new ApiError(500, 'Invalid response format from server');
+            }
+            return rawResponse.nodes.map((n) => apiNodeToGraphNode(n));
         });
     },
 
@@ -120,10 +180,16 @@ export const api = {
      * Get a single node by ID
      */
     async getNode(nodeId: string): Promise<GraphNode> {
-        return dedupedFetch(`node:${nodeId}`, async () => {
+        return dedupedFetch(`node:${nodeId}`, async (signal) => {
             const encodedId = encodeURIComponent(nodeId);
-            const node = await fetchJson<ApiNode>(`${API_BASE}/graph/node/${encodedId}`);
-            return apiNodeToGraphNode(node);
+            const rawNode = await fetchJson<unknown>(
+                `${API_BASE}/graph/node/${encodedId}`,
+                { signal },
+            );
+            if (!isValidApiNode(rawNode)) {
+                throw new ApiError(500, 'Invalid node response format');
+            }
+            return apiNodeToGraphNode(rawNode);
         });
     },
 
@@ -131,12 +197,16 @@ export const api = {
      * Get immediate children of a node
      */
     async getNodeChildren(nodeId: string, limit = 1000): Promise<GraphNode[]> {
-        return dedupedFetch(`children:${nodeId}`, async () => {
+        return dedupedFetch(`children:${nodeId}`, async (signal) => {
             const encodedId = encodeURIComponent(nodeId);
-            const response = await fetchJson<ChildrenResponse>(
+            const rawResponse = await fetchJson<unknown>(
                 `${API_BASE}/graph/node/${encodedId}/children?limit=${limit}`,
+                { signal },
             );
-            return response.children.map((n) => apiNodeToGraphNode(n));
+            if (!isValidChildrenResponse(rawResponse)) {
+                throw new ApiError(500, 'Invalid children response format');
+            }
+            return rawResponse.children.map((n) => apiNodeToGraphNode(n));
         });
     },
 
@@ -144,12 +214,16 @@ export const api = {
      * Get ancestors of a node (for breadcrumbs)
      */
     async getNodeAncestors(nodeId: string): Promise<GraphNode[]> {
-        return dedupedFetch(`ancestors:${nodeId}`, async () => {
+        return dedupedFetch(`ancestors:${nodeId}`, async (signal) => {
             const encodedId = encodeURIComponent(nodeId);
-            const response = await fetchJson<AncestorsResponse>(
+            const rawResponse = await fetchJson<unknown>(
                 `${API_BASE}/graph/node/${encodedId}/ancestors`,
+                { signal },
             );
-            return response.ancestors.map((n) => apiNodeToGraphNode(n));
+            if (!isValidAncestorsResponse(rawResponse)) {
+                throw new ApiError(500, 'Invalid ancestors response format');
+            }
+            return rawResponse.ancestors.map((n) => apiNodeToGraphNode(n));
         });
     },
 
@@ -157,8 +231,11 @@ export const api = {
      * Get all references to/from a node
      */
     async getNodeReferences(nodeId: string): Promise<ReferencesResponse> {
-        return dedupedFetch(`references:${nodeId}`, async () => {
-            return fetchJson<ReferencesResponse>(`${API_BASE}/graph/node/${nodeId}/references`);
+        return dedupedFetch(`references:${nodeId}`, async (signal) => {
+            return fetchJson<ReferencesResponse>(
+                `${API_BASE}/graph/node/${nodeId}/references`,
+                { signal },
+            );
         });
     },
 
@@ -170,13 +247,13 @@ export const api = {
         children: GraphNode[];
         outgoing: { id: string; name: string; type: string; edgeType: string }[];
     }> {
-        return dedupedFetch(`expand:${nodeId}`, async () => {
+        return dedupedFetch(`expand:${nodeId}`, async (signal) => {
             const encodedId = encodeURIComponent(nodeId);
             const response = await fetchJson<{
                 node: ApiNode | null;
                 children: ApiNode[];
                 outgoing: { id: string; name: string; type: string; edge_type: string }[];
-            }>(`${API_BASE}/graph/expand/${encodedId}`);
+            }>(`${API_BASE}/graph/expand/${encodedId}`, { signal });
             return {
                 node: response.node ? apiNodeToGraphNode(response.node) : null,
                 children: response.children.map((n) => apiNodeToGraphNode(n)),
@@ -198,7 +275,13 @@ export const api = {
         if (typeFilter) {
             params.set('type_filter', typeFilter);
         }
-        return fetchJson<SearchResponse>(`${API_BASE}/search?${params}`);
+        const rawResponse = await fetchJson<unknown>(
+            `${API_BASE}/search?${params}`,
+        );
+        if (!isValidSearchResponse(rawResponse)) {
+            throw new ApiError(500, 'Invalid search response format');
+        }
+        return rawResponse;
     },
 
     /**
