@@ -4,7 +4,7 @@
 
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { useTreeStore, NODE_COLORS } from './treeStore';
-import { isValidNodeType, NodeType } from '@/types/graph.types';
+import { isValidNodeType, NodeType, isValidEdgeType } from '@/types/graph.types';
 
 // Mock the API
 vi.mock('@/services/api', () => ({
@@ -69,10 +69,25 @@ describe('useTreeStore', () => {
         it('should reject invalid node types', () => {
             expect(isValidNodeType('invalid')).toBe(false);
             expect(isValidNodeType('')).toBe(false);
-            expect(isValidNodeType(123)).toBe(false);
+            expect(isValidNodeType(123 as unknown)).toBe(false);
             expect(isValidNodeType(null)).toBe(false);
             expect(isValidNodeType(undefined)).toBe(false);
-            expect(isValidNodeType({})).toBe(false);
+            expect(isValidNodeType({}) as unknown).toBe(false);
+        });
+    });
+
+    describe('isValidEdgeType', () => {
+        it('should validate correct edge types', () => {
+            expect(isValidEdgeType('contains')).toBe(true);
+            expect(isValidEdgeType('calls')).toBe(true);
+            expect(isValidEdgeType('imports')).toBe(true);
+            expect(isValidEdgeType('inherits')).toBe(true);
+        });
+
+        it('should reject invalid edge types', () => {
+            expect(isValidEdgeType('invalid')).toBe(false);
+            expect(isValidEdgeType('')).toBe(false);
+            expect(isValidEdgeType(123 as unknown)).toBe(false);
         });
     });
 

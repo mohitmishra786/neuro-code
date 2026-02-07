@@ -56,6 +56,25 @@ export interface GraphEdge {
     callCount?: number;
 }
 
+// Edge type validation
+const RELATIONSHIP_TYPE_VALUES = [
+    'CONTAINS',
+    'IMPORTS',
+    'CALLS',
+    'INSTANTIATES',
+    'INHERITS',
+    'DECORATES',
+    'DEFINES',
+    'USES',
+] as const;
+
+export function isValidRelationshipType(value: unknown): value is RelationshipType {
+    return (
+        typeof value === 'string' &&
+        RELATIONSHIP_TYPE_VALUES.includes(value as RelationshipType)
+    );
+}
+
 export interface Viewport {
     x: number;
     y: number;
@@ -92,47 +111,47 @@ export interface ReferenceNode {
 
 // API Response types
 export interface RootNodesResponse {
-    nodes: ApiNode[];
-    total: number;
+    readonly nodes: readonly ApiNode[];
+    readonly total: number;
 }
 
 export interface ChildrenResponse {
-    parent_id: string;
-    children: ApiNode[];
-    total: number;
+    readonly parent_id: string;
+    readonly children: readonly ApiNode[];
+    readonly total: number;
 }
 
 export interface AncestorsResponse {
-    node_id: string;
-    ancestors: ApiNode[];
+    readonly node_id: string;
+    readonly ancestors: readonly ApiNode[];
 }
 
 export interface SearchResponse {
-    query: string;
-    results: SearchResult[];
-    total: number;
+    readonly query: string;
+    readonly results: readonly SearchResult[];
+    readonly total: number;
 }
 
 export interface ReferencesResponse {
-    node_id: string;
-    references: ReferenceNode[];
-    total: number;
+    readonly node_id: string;
+    readonly references: readonly ReferenceNode[];
+    readonly total: number;
 }
 
 export interface ApiNode {
-    id: string;
-    name: string;
-    type: NodeType;
-    qualified_name?: string;
-    line_number?: number;
-    docstring?: string;
-    child_count: number;
-    is_async?: boolean;
-    is_method?: boolean;
-    is_abstract?: boolean;
-    complexity?: number;
-    return_type?: string;
-    type_hint?: string;
+    readonly id: string;
+    readonly name: string;
+    readonly type: NodeType;
+    readonly qualified_name?: string;
+    readonly line_number?: number;
+    readonly docstring?: string;
+    readonly child_count: number;
+    readonly is_async?: boolean;
+    readonly is_method?: boolean;
+    readonly is_abstract?: boolean;
+    readonly complexity?: number;
+    readonly return_type?: string;
+    readonly type_hint?: string;
 }
 
 // WebSocket message types
@@ -161,9 +180,112 @@ export interface HeartbeatMessage extends WebSocketMessage {
 }
 
 export interface ProjectTreeNode {
-    id: string;
-    type: NodeType | 'root' | 'package';
-    label?: string;
-    data?: Record<string, unknown>;
-    children?: ProjectTreeNode[];
+    readonly id: string;
+    readonly type: NodeType | 'root' | 'package';
+    readonly label?: string;
+    readonly data?: Readonly<Record<string, unknown>>;
+    readonly children?: readonly ProjectTreeNode[];
+}
+
+// Validation helper types
+type StringOrUndefined = string | undefined;
+type NumberOrUndefined = number | undefined;
+type BooleanOrUndefined = boolean | undefined;
+
+// Validation functions for runtime type checking
+export function isValidApiNode(value: unknown): value is ApiNode {
+    if (typeof value !== 'object' || value === null) return false;
+    const node = value as Record<string, unknown>;
+    return (
+        typeof node.id === 'string' &&
+        typeof node.name === 'string' &&
+        isValidNodeType(node.type) &&
+        (node.qualified_name === undefined || typeof node.qualified_name === 'string') &&
+        (node.line_number === undefined || typeof node.line_number === 'number') &&
+        (node.docstring === undefined || typeof node.docstring === 'string') &&
+        typeof node.child_count === 'number' &&
+        (node.is_async === undefined || typeof node.is_async === 'boolean') &&
+        (node.is_method === undefined || typeof node.is_method === 'boolean') &&
+        (node.is_abstract === undefined || typeof node.is_abstract === 'boolean') &&
+        (node.complexity === undefined || typeof node.complexity === 'number') &&
+        (node.return_type === undefined || typeof node.return_type === 'string') &&
+        (node.type_hint === undefined || typeof node.type_hint === 'string')
+    );
+}
+
+export function isValidSearchResult(value: unknown): value is SearchResult {
+    if (typeof value !== 'object' || value === null) return false;
+    const result = value as Record<string, unknown>;
+    return (
+        typeof result.id === 'string' &&
+        typeof result.name === 'string' &&
+        isValidNodeType(result.type) &&
+        (result.qualified_name === undefined || typeof result.qualified_name === 'string') &&
+        (result.line_number === undefined || typeof result.line_number === 'number') &&
+        (result.docstring === undefined || typeof result.docstring === 'string') &&
+        typeof result.score === 'number'
+    );
+}
+
+export function isValidSearchResponse(value: unknown): value is SearchResponse {
+    if (typeof value !== 'object' || value === null) return false;
+    const response = value as Record<string, unknown>;
+    return (
+        typeof response.query === 'string' &&
+        Array.isArray(response.results) &&
+        response.results.every(isValidSearchResult) &&
+        typeof response.total === 'number'
+    );
+}
+
+export function isValidRootNodesResponse(value: unknown): value is RootNodesResponse {
+    if (typeof value !== 'object' || value === null) return false;
+    const response = value as Record<string, unknown>;
+    return (
+        Array.isArray(response.nodes) &&
+        response.nodes.every(isValidApiNode) &&
+        typeof response.total === 'number'
+    );
+}
+
+export function isValidChildrenResponse(value: unknown): value is ChildrenResponse {
+    if (typeof value !== 'object' || value === null) return false;
+    const response = value as Record<string, unknown>;
+    return (
+        typeof response.parent_id === 'string' &&
+        Array.isArray(response.children) &&
+        response.children.every(isValidApiNode) &&
+        typeof response.total === 'number'
+    );
+}
+
+export function isValidAncestorsResponse(value: unknown): value is AncestorsResponse {
+    if (typeof value !== 'object' || value === null) return false;
+    const response = value as Record<string, unknown>;
+    return (
+        typeof response.node_id === 'string' &&
+        Array.isArray(response.ancestors) &&
+        response.ancestors.every(isValidApiNode)
+    );
+}
+
+// Safe parsing functions that return null on failure
+export function parseApiNode(data: unknown): ApiNode | null {
+    return isValidApiNode(data) ? data : null;
+}
+
+export function parseSearchResponse(data: unknown): SearchResponse | null {
+    return isValidSearchResponse(data) ? data : null;
+}
+
+export function parseRootNodesResponse(data: unknown): RootNodesResponse | null {
+    return isValidRootNodesResponse(data) ? data : null;
+}
+
+export function parseChildrenResponse(data: unknown): ChildrenResponse | null {
+    return isValidChildrenResponse(data) ? data : null;
+}
+
+export function parseAncestorsResponse(data: unknown): AncestorsResponse | null {
+    return isValidAncestorsResponse(data) ? data : null;
 }

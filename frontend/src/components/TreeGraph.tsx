@@ -26,6 +26,7 @@ import { TypedEdge } from '@/components/edges/TypedEdge';
 import { useTreeStore, NODE_COLORS } from '@/stores/treeStore';
 import { useThemeStore } from '@/stores/themeStore';
 import { NodeType, isValidNodeType } from '@/types/graph.types';
+import { ErrorBoundary } from '@/components/ErrorBoundary';
 
 // Register custom node types
 const nodeTypes: NodeTypes = {
@@ -250,11 +251,21 @@ function TreeGraphInner() {
     );
 }
 
-// Wrap with ReactFlowProvider
+// Wrap with ReactFlowProvider and ErrorBoundary
 export function TreeGraph() {
     return (
         <ReactFlowProvider>
-            <TreeGraphInner />
+            <ErrorBoundary
+                fallback={
+                    <div className="tree-graph-error">
+                        <h3>Graph Error</h3>
+                        <p>Failed to render the graph. Please try refreshing the page.</p>
+                        <button onClick={() => window.location.reload()}>Refresh</button>
+                    </div>
+                }
+            >
+                <TreeGraphInner />
+            </ErrorBoundary>
         </ReactFlowProvider>
     );
 }
