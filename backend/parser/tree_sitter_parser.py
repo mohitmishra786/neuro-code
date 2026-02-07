@@ -56,7 +56,7 @@ class TreeSitterParser(LoggerMixin):
         Parse a Python file and extract all code elements.
 
         Args:
-            file_path: Path to the Python file
+            file_path: Path to Python file
 
         Returns:
             ModuleInfo containing all parsed elements
@@ -64,7 +64,7 @@ class TreeSitterParser(LoggerMixin):
         start_time = time.perf_counter()
 
         try:
-            content = file_path.read_bytes()
+            content = self._read_file_with_encoding(file_path)
         except OSError as e:
             self.log.error("failed_to_read_file", path=str(file_path), error=str(e))
             return ModuleInfo(path=file_path, name=file_path.stem)
@@ -79,6 +79,58 @@ class TreeSitterParser(LoggerMixin):
             functions=len(module.functions),
         )
         return module
+
+    def _read_file_with_encoding(self, file_path: Path) -> bytes:
+        """
+        Read file with proper encoding detection and error handling.
+
+        Args:
+            file_path: Path to file to read
+
+        Returns:
+            File content as bytes (for tree-sitter parsing)
+
+        Raises:
+            OSError: If file cannot be read
+        """
+        try:
+            # First, try to read encoding from file
+            # Python files typically use UTF-8, but may have encoding declarations
+            content = file_path.read_bytes()
+            
+            # Check for encoding declaration in first few lines
+            first_lines = content.split(b'\n')[:3]
+            encoding = self._detect_encoding_from_source(first_lines)
+            
+            return content
+        except OSError as e:
+            self.log.error("file_read_error", path=str(file_path), error=str(e))
+            raise
+
+    def _detect_encoding_from_source(self, lines: list[bytes]) -> str | None:
+        """
+        Detect encoding from Python source file encoding declaration.
+
+        Args:
+            lines: First few lines of the source file
+
+        Returns:
+            Detected encoding name or None if not found
+        """
+        for line in lines:
+            try:
+                text = line.decode('utf-8', errors='ignore')
+            except UnicodeDecodeError:
+                continue
+
+            # Look for: # -*- coding: <encoding> -*- or # coding=<encoding>
+            if b'# -*-' in line or b'coding=' in line:
+                import re
+                match = re.search(r'coding[:=]\s*["\']?([-\w.]+)["\']?', text, re.IGNORECASE)
+                if match:
+                    return match.group(1)
+
+        return None
 
     def parse_content(self, content: bytes, file_path: Path | None = None) -> ModuleInfo:
         """

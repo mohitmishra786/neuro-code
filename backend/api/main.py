@@ -1,7 +1,7 @@
 """
 NeuroCode API Main Application.
 
-FastAPI application with CORS, error handling, and lifecycle management.
+FastAPI application with CORS, error handling, rate limiting, and lifecycle management.
 Requires Python 3.11+.
 """
 
@@ -13,6 +13,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from api.dependencies import set_neo4j_client, get_neo4j_client
+from api.middleware.rate_limit import RateLimitMiddleware, rate_limit
 from graph_db.neo4j_client import Neo4jClient
 from utils.config import get_settings
 from utils.logger import configure_logging, get_logger
@@ -85,6 +86,10 @@ def create_app() -> FastAPI:
         allow_headers=["*"],
     )
 
+    # Rate limiting middleware (if enabled)
+    if settings.api.rate_limit_enabled:
+        application.add_middleware(RateLimitMiddleware, app=application)
+
     # Global exception handler
     @application.exception_handler(Exception)
     async def global_exception_handler(
@@ -104,11 +109,26 @@ def create_app() -> FastAPI:
             },
         )
 
-    # Health check endpoint
+    # Health check endpoint (with rate limiting)
     @application.get("/health")
+    @rate_limit(requests_per_window=30, window_seconds=60)
     async def health_check() -> dict[str, Any]:
-        """Health check endpoint."""
-        neo4j_status = "connected" if get_neo4j_client() else "disconnected"
+        """
+        Health check endpoint.
+
+        Rate limited to prevent abuse and information leakage.
+        Returns limited information to prevent intelligence gathering.
+        """
+        client = get_neo4j_client()
+        neo4j_status = "connected" if client else "disconnected"
+
+        # In production, return limited information
+        if not settings.is_development:
+            return {
+                "status": "healthy",
+            }
+
+        # Development: include more details
         return {
             "status": "healthy",
             "version": settings.app_version,

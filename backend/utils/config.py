@@ -111,6 +111,25 @@ class APISettings(BaseSettings):
         default="",
         description="API key for destructive operations (clear, delete)"
     )
+    rate_limit_enabled: bool = Field(
+        default=True,
+        description="Enable rate limiting on API endpoints"
+    )
+    rate_limit_requests: int = Field(
+        default=100,
+        ge=1,
+        description="Maximum requests per rate limit window"
+    )
+    rate_limit_window: int = Field(
+        default=60,
+        ge=1,
+        description="Rate limit window in seconds"
+    )
+    rate_limit_burst: int = Field(
+        default=10,
+        ge=1,
+        description="Burst allowance for rate limiting"
+    )
 
     @field_validator("cors_origins", mode="before")
     @classmethod

@@ -217,22 +217,57 @@ class Neo4jClient(LoggerMixin):
         Initialize the graph schema with indexes and constraints.
 
         Safe to call multiple times (uses IF NOT EXISTS).
+        
+        Raises:
+            RuntimeError: If critical schema initialization fails
         """
         self.log.info("initializing_schema")
 
+        constraint_errors = []
+        index_errors = []
+        
         # Create constraints
         for statement in GraphSchema.get_constraint_creation_statements():
             try:
                 await self.execute_write(statement)
             except Exception as e:
-                self.log.warning("constraint_creation_warning", statement=statement, error=str(e))
-
+                error_msg = str(e)
+                self.log.error("constraint_creation_failed", statement=statement, error=error_msg)
+                
+                # Check for critical failures
+                if "ConstraintAlreadyExists" not in error_msg and "Database not available" not in error_msg:
+                    constraint_errors.append((statement, error_msg))
+        
         # Create indexes
         for statement in GraphSchema.get_index_creation_statements():
             try:
                 await self.execute_write(statement)
             except Exception as e:
-                self.log.warning("index_creation_warning", statement=statement, error=str(e))
+                error_msg = str(e)
+                self.log.error("index_creation_failed", statement=statement, error=error_msg)
+                
+                # Index failures are less critical but should still be tracked
+                if "IndexAlreadyExists" not in error_msg and "Database not available" not in error_msg:
+                    index_errors.append((statement, error_msg))
+
+        # Raise error if critical constraint creation failed
+        if constraint_errors:
+            self.log.error(
+                "schema_initialization_failed",
+                constraint_count=len(constraint_errors),
+                index_count=len(index_errors),
+            )
+            raise RuntimeError(
+                f"Failed to create {len(constraint_errors)} constraint(s). "
+                f"Schema may be in inconsistent state."
+            )
+
+        # Log warning if indexes failed (non-critical)
+        if index_errors:
+            self.log.warning(
+                "schema_index_issues",
+                index_count=len(index_errors),
+            )
 
         self.log.info("schema_initialized")
 

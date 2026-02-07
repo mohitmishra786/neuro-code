@@ -54,18 +54,34 @@ class AccessType(str, Enum):
 def generate_node_id(file_path: Path | str, *scope_parts: str) -> str:
     """
     Generate a hierarchical node ID.
-    
+
     Format: file_path::scope1::scope2::...
-    
+    Escapes any '::' in path components to prevent ID breakage.
+
     Examples:
         - src/vaak/core/math_engine.py
         - src/vaak/core/math_engine.py::ValidatorClass
         - src/vaak/core/math_engine.py::ValidatorClass::validate_output
     """
+    def escape_component(component: str) -> str:
+        """
+        Escape a path component to prevent delimiter collision.
+
+        Args:
+            component: Component to escape
+
+        Returns:
+            Escaped component with '::' replaced
+        """
+        return component.replace("::", "\\\\:\\")
+
     base = str(file_path) if file_path else ""
+    escaped_base = escape_component(base)
+    
     if scope_parts:
-        return f"{base}::{'::'.join(scope_parts)}"
-    return base
+        escaped_scopes = [escape_component(part) for part in scope_parts]
+        return f"{escaped_base}::{'::'.join(escaped_scopes)}"
+    return escaped_base
 
 
 @dataclass(slots=True)

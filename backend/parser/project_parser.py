@@ -227,12 +227,57 @@ class ProjectParser(LoggerMixin):
         return self.packages, self.modules, self.relationships
     
     def _discover_files(self) -> list[Path]:
-        """Find all Python files in the project."""
+        """
+        Find all Python files in the project.
+
+        Handles symlinks and prevents infinite loops from circular symlinks.
+
+        Returns:
+            Sorted list of Python file paths
+        """
         files = []
+        visited = set()
+        
         for file_path in self.root.rglob("*.py"):
-            if self._should_ignore(file_path):
+            # Resolve symlinks to actual path
+            try:
+                resolved_path = file_path.resolve(strict=False)
+            except (OSError, RuntimeError) as e:
+                self.log.warning(
+                    "path_resolution_failed",
+                    path=str(file_path),
+                    error=str(e),
+                )
                 continue
+            
+            # Check for symlink cycles
+            canonical_path = str(resolved_path)
+            if canonical_path in visited:
+                self.log.warning(
+                    "skipping_symlink_cycle",
+                    path=canonical_path,
+                )
+                continue
+            
+            visited.add(canonical_path)
+            
+            # Skip ignored paths
+            if self._should_ignore(resolved_path):
+                continue
+            
+            # Skip symlinks that point outside project (security)
+            try:
+                resolved_path.relative_to(self.root)
+            except ValueError:
+                self.log.warning(
+                    "skipping_external_symlink",
+                    path=str(file_path),
+                    target=str(resolved_path),
+                )
+                continue
+            
             files.append(file_path)
+        
         return sorted(files)
     
     def _should_ignore(self, path: Path) -> bool:
