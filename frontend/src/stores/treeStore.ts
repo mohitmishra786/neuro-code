@@ -62,6 +62,10 @@ function arrayToSet<T>(array: readonly T[] | undefined): Set<T> {
     return new Set(array ?? []);
 }
 
+// Search request tracking for race condition prevention
+let searchRequestId = 0;
+let currentSearchId = 0;
+
 // Node colors by type
 export const NODE_COLORS: Record<NodeType, string> = {
     package: '#6366f1',   // Indigo
@@ -504,8 +508,13 @@ export const useTreeStore = create<TreeState>((set, get) => ({
     },
 
     search: async (query: string) => {
+        const currentRequestId = ++searchRequestId;
+        
         if (!query.trim()) {
-            set({ searchResults: [], searchQuery: '' });
+            // Only clear if this is the latest request
+            if (currentRequestId === searchRequestId) {
+                set({ searchResults: [], searchQuery: '' });
+            }
             return;
         }
         
@@ -513,6 +522,12 @@ export const useTreeStore = create<TreeState>((set, get) => ({
         
         try {
             const response = await api.search(query);
+            
+            // Only update if this is still the latest request
+            if (currentRequestId !== searchRequestId) {
+                return;
+            }
+            
             // Convert SearchResult to GraphNode by adding missing fields
             const results: GraphNode[] = response.results.map(r => ({
                 ...r,
@@ -521,6 +536,11 @@ export const useTreeStore = create<TreeState>((set, get) => ({
             }));
             set({ searchResults: results });
         } catch (error) {
+            // Only handle error if this is still the latest request
+            if (currentRequestId !== searchRequestId) {
+                return;
+            }
+            
             console.error('Search failed:', error);
             set({ searchResults: [] });
         }
@@ -528,6 +548,11 @@ export const useTreeStore = create<TreeState>((set, get) => ({
 
     navigateToSearchResult: async (nodeId: string) => {
         const { focusNode } = get();
+        
+        // Cancel any pending search navigation by incrementing the search ID
+        ++currentSearchId;
+        ++searchRequestId;
+        
         await focusNode(nodeId);
         set({ searchQuery: '', searchResults: [] });
     },

@@ -306,4 +306,75 @@ describe('useTreeStore', () => {
             expect(childIds[0]).not.toBe(childIds[1]);
         });
     });
+
+    describe('search race condition handling', () => {
+        it('should prevent stale search results from overwriting newer ones', async () => {
+            useTreeStore.getState().reset();
+            
+            const { api } = await import('@/services/api');
+            
+            let slowResolve: (value: unknown) => void;
+            const slowPromise = new Promise(resolve => {
+                slowResolve = resolve;
+            });
+            
+            vi.mocked(api.search).mockImplementation(async (query: string) => {
+                if (query === 'slow') {
+                    return slowPromise;
+                }
+                return {
+                    query,
+                    results: [{ id: 'fast', name: 'Fast Result', type: 'class' as const, score: 1 }],
+                    total: 1,
+                };
+            });
+            
+            const searchSlow = useTreeStore.getState().search('slow');
+            
+            await useTreeStore.getState().search('fast');
+            
+            slowResolve!({
+                query: 'slow',
+                results: [{ id: 'slow', name: 'Slow Result', type: 'class' as const, score: 1 }],
+                total: 1,
+            });
+            
+            await searchSlow;
+            
+            const { searchResults } = useTreeStore.getState();
+            expect(searchResults.length).toBe(1);
+            expect(searchResults[0].id).toBe('fast');
+        });
+
+        it('should cancel search results when navigating away', async () => {
+            useTreeStore.getState().reset();
+            
+            const { api } = await import('@/services/api');
+            
+            let slowResolve: (value: unknown) => void;
+            const slowPromise = new Promise(resolve => {
+                slowResolve = resolve;
+            });
+            
+            vi.mocked(api.search).mockImplementation(async () => slowPromise);
+            vi.mocked(api.getNodeAncestors).mockResolvedValue([]);
+            vi.mocked(api.expandNode).mockResolvedValue({ children: [], outgoing: [] });
+            
+            const searchPromise = useTreeStore.getState().search('test');
+            
+            await useTreeStore.getState().navigateToSearchResult('node1');
+            
+            slowResolve!({
+                query: 'test',
+                results: [{ id: 'stale', name: 'Stale', type: 'class' as const, score: 1 }],
+                total: 1,
+            });
+            
+            await searchPromise;
+            
+            const { searchResults, searchQuery } = useTreeStore.getState();
+            expect(searchResults.length).toBe(0);
+            expect(searchQuery).toBe('');
+        });
+    });
 });
