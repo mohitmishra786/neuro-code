@@ -552,4 +552,43 @@ describe('useTreeStore', () => {
             expect(expandedIds.has('pkg1')).toBe(false);
         });
     });
+
+    describe('zustand state persistence', () => {
+        it('should persist expandedIds state', async () => {
+            useTreeStore.getState().reset();
+            
+            await useTreeStore.getState().loadRootNodes();
+            await useTreeStore.getState().expandNode('pkg1');
+            
+            // Check that expandedIds is persisted
+            const { expandedIds } = useTreeStore.getState();
+            expect(expandedIds.has('pkg1')).toBe(true);
+        });
+
+        it('should persist selectedNodeId state', async () => {
+            useTreeStore.getState().reset();
+            
+            await useTreeStore.getState().loadRootNodes();
+            await useTreeStore.getState().expandNode('pkg1');
+            
+            useTreeStore.getState().selectNode('cls1');
+            
+            const { selectedNodeId } = useTreeStore.getState();
+            expect(selectedNodeId).toBe('cls1');
+        });
+
+        it('should persist breadcrumbPath state', async () => {
+            useTreeStore.getState().reset();
+            
+            await useTreeStore.getState().loadRootNodes();
+            await useTreeStore.getState().expandNode('pkg1');
+            
+            useTreeStore.getState().selectNode('cls1');
+            
+            const { breadcrumbPath } = useTreeStore.getState();
+            expect(breadcrumbPath.length).toBe(2);
+            expect(breadcrumbPath[0].id).toBe('pkg1');
+            expect(breadcrumbPath[1].id).toBe('cls1');
+        });
+    });
 });

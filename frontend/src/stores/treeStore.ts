@@ -6,6 +6,7 @@
  */
 
 import { create } from 'zustand';
+import { persist, createJSONStorage } from 'zustand/middleware';
 import { Node, Edge, NodeChange, EdgeChange, applyNodeChanges, applyEdgeChanges } from 'reactflow';
 import { api } from '@/services/api';
 import { cache } from '@/services/cache';
@@ -636,6 +637,38 @@ export const useTreeStore = create<TreeState>((set, get) => ({
             searchQuery: '',
             searchResults: [],
         });
+    },
+}), {
+    name: 'neurocode-tree-store',
+    storage: createJSONStorage(() => localStorage),
+    partialize: (state) => ({
+        expandedIds: Array.from(state.expandedIds),
+        selectedNodeId: state.selectedNodeId,
+        breadcrumbPath: state.breadcrumbPath.map(node => ({
+            id: node.id,
+            name: node.name,
+            type: node.type,
+            qualifiedName: node.qualifiedName,
+            parentId: node.parentId,
+            depth: node.depth,
+            childCount: node.childCount,
+            isExpanded: node.isExpanded,
+        })),
+    }),
+    merge: (persisted: Partial<TreeState> | undefined, current: TreeState): TreeState => {
+        const merged = { ...current, ...persisted };
+        
+        // Restore expandedIds from array
+        if (persisted?.expandedIds && Array.isArray(persisted.expandedIds)) {
+            merged.expandedIds = new Set(persisted.expandedIds);
+        }
+        
+        // Restore breadcrumbPath
+        if (persisted?.breadcrumbPath && Array.isArray(persisted.breadcrumbPath)) {
+            merged.breadcrumbPath = persisted.breadcrumbPath;
+        }
+        
+        return merged;
     },
 }));
 
