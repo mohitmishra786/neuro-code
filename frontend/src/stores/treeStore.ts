@@ -233,20 +233,22 @@ function createEdge(sourceId: string, targetId: string, edgeType: EdgeType = 'co
     };
 }
 
-export const useTreeStore = create<TreeState>((set, get) => ({
-    nodes: [],
-    edges: [],
-    nodeCache: new Map(),
-    expandedIds: new Set(),
-    selectedNodeId: null,
-    hoveredNodeId: null,
-    breadcrumbPath: [],
-    isLoading: false,
-    isExpanding: new Set(),
-    error: null,
-    searchQuery: '',
-    searchResults: [],
-    isOnline: typeof navigator !== 'undefined' ? navigator.onLine : true,
+export const useTreeStore = create<TreeState>()(
+    persist(
+        (set, get) => ({
+            nodes: [],
+            edges: [],
+            nodeCache: new Map(),
+            expandedIds: new Set(),
+            selectedNodeId: null,
+            hoveredNodeId: null,
+            breadcrumbPath: [],
+            isLoading: false,
+            isExpanding: new Set(),
+            error: null,
+            searchQuery: '',
+            searchResults: [],
+            isOnline: typeof navigator !== 'undefined' ? navigator.onLine : true,
 
     loadRootNodes: async () => {
         // Check online status before making network requests
@@ -712,17 +714,15 @@ export const useTreeStore = create<TreeState>((set, get) => ({
     }),
     merge: (persisted: Partial<TreeState> | undefined, current: TreeState): TreeState => {
         const merged = { ...current, ...persisted };
-        
-        // Restore expandedIds from array
+
         if (persisted?.expandedIds && Array.isArray(persisted.expandedIds)) {
             merged.expandedIds = new Set(persisted.expandedIds);
         }
-        
-        // Restore breadcrumbPath
+
         if (persisted?.breadcrumbPath && Array.isArray(persisted.breadcrumbPath)) {
             merged.breadcrumbPath = persisted.breadcrumbPath;
         }
-        
+
         return merged;
     },
 }));
