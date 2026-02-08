@@ -156,6 +156,16 @@ class ProjectParser(LoggerMixin):
         ".tox",
     ]
     
+    # Set of directory names to ignore for O(1) lookup
+    _IGNORE_DIRS = frozenset({
+        "__pycache__", ".git", ".venv", "venv", "node_modules",
+        ".pytest_cache", ".mypy_cache", ".ruff_cache", "build", "dist",
+        ".egg-info", ".tox",
+    })
+    
+    # Extensions to ignore
+    _IGNORE_EXTENSIONS = frozenset({".pyc", ".pyo", ".so", ".pyd"})
+    
     def __init__(self, root_path: Path):
         """
         Initialize the project parser.
@@ -189,6 +199,9 @@ class ProjectParser(LoggerMixin):
         # Collected relationships
         self.relationships: list[Relationship] = []
         
+        # Parse errors
+        self.errors: list[str] = []
+        
         # Package ID mapping: relative path -> PackageInfo
         self._package_map: dict[str, PackageInfo] = {}
         
@@ -197,6 +210,9 @@ class ProjectParser(LoggerMixin):
         
         # Symbol resolution cache to avoid O(N^2) lookups
         self._symbol_resolution_cache: dict[str, str | None] = {}
+        
+        # Cached path to relative path conversion
+        self._relative_path_cache: dict[str, str] = {}
     
     def _check_symbol_table_size(self) -> bool:
         """
@@ -450,11 +466,18 @@ class ProjectParser(LoggerMixin):
         return sorted(files)
     
     def _should_ignore(self, path: Path) -> bool:
-        """Check if a path should be ignored."""
-        path_str = str(path)
-        for pattern in self.IGNORE_PATTERNS:
-            if pattern in path_str:
+        """Check if a path should be ignored using O(1) directory name lookup."""
+        # Check directory names for O(1) lookup
+        for part in path.parts:
+            if part in self._IGNORE_DIRS:
                 return True
+            if part.endswith(".egg-info"):
+                return True
+        
+        # Check file extension
+        if path.suffix in self._IGNORE_EXTENSIONS:
+            return True
+        
         return False
     
     def _get_relative_path(self, file_path: Path) -> str:

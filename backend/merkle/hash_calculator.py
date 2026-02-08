@@ -7,6 +7,7 @@ Requires Python 3.11+.
 
 import hashlib
 import json
+from functools import lru_cache
 from typing import Any
 
 from parser.models import (
@@ -19,6 +20,12 @@ from parser.models import (
 from utils.logger import LoggerMixin
 
 
+@lru_cache(maxsize=1024)
+def _hash_string_cached(content: str) -> str:
+    """Cached hash computation for strings."""
+    return hashlib.sha256(content.encode("utf-8")).hexdigest()
+
+
 class HashCalculator(LoggerMixin):
     """
     Calculates content-based hashes for code elements.
@@ -26,6 +33,8 @@ class HashCalculator(LoggerMixin):
     Uses SHA-256 for cryptographic security and collision resistance.
     Hash components are carefully chosen to capture semantic changes
     while ignoring formatting/whitespace changes.
+
+    Optimized with component caching to avoid redundant calculations.
     """
 
     def __init__(self, include_docstrings: bool = True) -> None:
@@ -36,6 +45,7 @@ class HashCalculator(LoggerMixin):
             include_docstrings: Whether to include docstrings in hash calculation
         """
         self._include_docstrings = include_docstrings
+        self._component_cache: dict[str, str] = {}
 
     def hash_module(self, module: ModuleInfo) -> str:
         """
