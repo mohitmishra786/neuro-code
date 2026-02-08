@@ -629,4 +629,43 @@ describe('useTreeStore', () => {
             Object.defineProperty(navigator, 'onLine', { value: originalOnLine, writable: true });
         });
     });
+
+    describe('infinite loop prevention', () => {
+        it('should prevent rapid successive expandNode calls', async () => {
+            useTreeStore.getState().reset();
+            
+            await useTreeStore.getState().loadRootNodes();
+            
+            // Mock expandNode to return empty children
+            const { api } = await import('@/services/api');
+            vi.mocked(api.expandNode).mockResolvedValue({ children: [], outgoing: [] });
+            
+            // Rapid successive calls should not cause issues
+            const expandPromises = [
+                useTreeStore.getState().expandNode('pkg1'),
+                useTreeStore.getState().expandNode('pkg1'),
+                useTreeStore.getState().expandNode('pkg1'),
+            ];
+            
+            await Promise.all(expandPromises);
+            
+            const { isExpanding } = useTreeStore.getState();
+            expect(isExpanding.has('pkg1')).toBe(false);
+        });
+
+        it('should handle expandNode errors gracefully', async () => {
+            useTreeStore.getState().reset();
+            
+            await useTreeStore.getState().loadRootNodes();
+            
+            const { api } = await import('@/services/api');
+            vi.mocked(api.expandNode).mockRejectedValue(new Error('Network error'));
+            
+            await useTreeStore.getState().expandNode('pkg1');
+            
+            const { isExpanding, error } = useTreeStore.getState();
+            expect(isExpanding.has('pkg1')).toBe(false);
+            expect(error).toContain('Network error');
+        });
+    });
 });

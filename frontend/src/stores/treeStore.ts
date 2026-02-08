@@ -96,6 +96,11 @@ function arrayToSet<T>(array: readonly T[] | undefined): Set<T> {
     return new Set(array ?? []);
 }
 
+// Expansion attempt tracking for infinite loop prevention
+const expansionAttempts = new Map<string, number>();
+const MAX_EXPANSION_ATTEMPTS = 3;
+const EXPANSION_COOLDOWN_MS = 5000;
+
 // Search request tracking for race condition prevention
 let searchRequestId = 0;
 let currentSearchId = 0;
@@ -316,10 +321,37 @@ export const useTreeStore = create<TreeState>((set, get) => ({
     },
 
     expandNode: async (nodeId: string) => {
-        const { nodeCache, expandedIds, isExpanding, selectedNodeId } = get();
+        const { nodeCache, expandedIds, isExpanding, isOnline } = get();
+        
+        // Prevent infinite expansion loops
+        const now = Date.now();
+        const lastAttempt = expansionAttempts.get(nodeId) ?? 0;
+        if (now - lastAttempt < EXPANSION_COOLDOWN_MS) {
+            const attempts = expansionAttempts.get(nodeId) ?? 0;
+            if (attempts >= MAX_EXPANSION_ATTEMPTS) {
+                console.warn(`[TreeStore] Expansion blocked for ${nodeId} - too many attempts`);
+                return;
+            }
+        }
+        expansionAttempts.set(nodeId, (expansionAttempts.get(nodeId) ?? 0) + 1);
         
         if (expandedIds.has(nodeId) || isExpanding.has(nodeId)) {
             return;
+        }
+        
+        // Check online status before making network requests
+        if (typeof navigator !== 'undefined' && !navigator.onLine) {
+            const cachedChildren = await cache.getChildren(nodeId);
+            if (cachedChildren && cachedChildren.length > 0) {
+                set({ isOnline: false, error: 'You are offline. Using cached data.' });
+            } else {
+                set({ 
+                    isOnline: false, 
+                    error: 'You are offline and this data is not cached.',
+                    isExpanding: new Set([...isExpanding].filter(id => id !== nodeId)),
+                });
+                return;
+            }
         }
         
         // Mark as expanding
