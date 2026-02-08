@@ -141,6 +141,9 @@ class LoggerMixin:
     """
     Mixin class to add logging capability to any class.
 
+    Uses name-mangled private attribute to prevent subclasses from
+    accidentally overwriting the logger instance.
+
     Usage:
         class MyClass(LoggerMixin):
             def my_method(self):
@@ -150,6 +153,8 @@ class LoggerMixin:
     @property
     def log(self) -> structlog.stdlib.BoundLogger:
         """Get logger bound to this class name."""
-        if not hasattr(self, "_logger"):
-            self._logger = get_logger(self.__class__.__name__)
-        return self._logger
+        cls_name = self.__class__.__name__
+        mangled_attr = f"_LoggerMixin__log_{cls_name.replace('.', '_')}"
+        if not hasattr(self, mangled_attr):
+            setattr(self, mangled_attr, get_logger(cls_name))
+        return getattr(self, mangled_attr)
