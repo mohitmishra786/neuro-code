@@ -2,6 +2,13 @@
  * NeuroCode Graph Types
  *
  * Type definitions for the code visualization graph.
+ *
+ * Naming Convention:
+ * - API Response types (ApiNode, SearchResponse, etc.) use snake_case to match
+ *   the backend API responses (qualified_name, line_number, child_count, etc.)
+ * - Internal types (GraphNode, TreeNode, etc.) use camelCase for consistency
+ *   with frontend conventions (qualifiedName, lineNumber, childCount, etc.)
+ * - Transformation functions (apiNodeToGraphNode) handle the conversion.
  */
 
 export type NodeType = 'package' | 'module' | 'class' | 'function' | 'variable' | 'unknown';

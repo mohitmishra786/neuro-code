@@ -79,57 +79,162 @@ export const NODE_COLORS: Record<NodeType, string> = {
 };
 
 interface TreeState {
-    // ReactFlow nodes and edges
-    nodes: readonly Node[];
-    edges: readonly Edge[];
+    /**
+     * ReactFlow nodes for rendering the graph visualization.
+     */
+    readonly nodes: readonly Node[];
 
-    // Node cache for lazy loading
-    nodeCache: ReadonlyMap<string, TreeNode>;
+    /**
+     * ReactFlow edges representing relationships between nodes.
+     */
+    readonly edges: readonly Edge[];
 
-    // Expansion state
-    expandedIds: ReadonlySet<string>;
+    /**
+     * Local cache of all loaded tree nodes, keyed by node ID.
+     * Used for efficient node lookups and lazy loading.
+     */
+    readonly nodeCache: ReadonlyMap<string, TreeNode>;
 
-    // Selection state
-    selectedNodeId: string | null;
-    hoveredNodeId: string | null;
+    /**
+     * Set of node IDs that have been expanded to show children.
+     */
+    readonly expandedIds: ReadonlySet<string>;
 
-    // Breadcrumb path
-    breadcrumbPath: readonly TreeNode[];
+    /**
+     * Currently selected node ID, or null if no selection.
+     */
+    readonly selectedNodeId: string | null;
 
-    // Loading state
-    isLoading: boolean;
-    isExpanding: ReadonlySet<string>;
-    error: string | null;
+    /**
+     * Currently hovered node ID, or null if no hover.
+     */
+    readonly hoveredNodeId: string | null;
 
-    // Network state
-    isOnline: boolean;
+    /**
+     * Array of nodes forming the breadcrumb path from root to selected node.
+     */
+    readonly breadcrumbPath: readonly TreeNode[];
 
-    // Search
-    searchQuery: string;
-    searchResults: readonly GraphNode[];
+    /**
+     * Whether the store is currently loading data.
+     */
+    readonly isLoading: boolean;
 
-    // Actions
-    loadRootNodes: () => Promise<void>;
-    expandNode: (nodeId: string) => Promise<void>;
-    collapseNode: (nodeId: string) => void;
-    toggleNode: (nodeId: string) => Promise<void>;
-    selectNode: (nodeId: string | null) => void;
-    hoverNode: (nodeId: string | null) => void;
-    focusNode: (nodeId: string) => Promise<void>;
+    /**
+     * Set of node IDs currently being expanded (for loading indicators).
+     */
+    readonly isExpanding: ReadonlySet<string>;
 
-    // ReactFlow handlers
-    onNodesChange: (changes: readonly NodeChange[]) => void;
-    onEdgesChange: (changes: readonly EdgeChange[]) => void;
+    /**
+     * Error message if an error occurred, or null if no error.
+     */
+    readonly error: string | null;
 
-    // Search
-    setSearchQuery: (query: string) => void;
-    search: (query: string) => Promise<void>;
-    navigateToSearchResult: (nodeId: string) => Promise<void>;
+    /**
+     * Whether the browser is online and network requests can be made.
+     */
+    readonly isOnline: boolean;
 
-    // Utilities
-    getNode: (nodeId: string) => TreeNode | undefined;
-    isExpanded: (nodeId: string) => boolean;
-    reset: () => void;
+    /**
+     * Current search query text.
+     */
+    readonly searchQuery: string;
+
+    /**
+     * Array of search results matching the current query.
+     */
+    readonly searchResults: readonly GraphNode[];
+
+    /**
+     * Load root nodes from cache or API.
+     * Initializes the node cache and sets up the initial graph state.
+     */
+    readonly loadRootNodes: () => Promise<void>;
+
+    /**
+     * Expand a node to load and display its children.
+     * @param nodeId - The ID of the node to expand
+     */
+    readonly expandNode: (nodeId: string) => Promise<void>;
+
+    /**
+     * Collapse a node, hiding its children and descendants.
+     * @param nodeId - The ID of the node to collapse
+     */
+    readonly collapseNode: (nodeId: string) => void;
+
+    /**
+     * Toggle the expanded state of a node.
+     * @param nodeId - The ID of the node to toggle
+     */
+    readonly toggleNode: (nodeId: string) => Promise<void>;
+
+    /**
+     * Select a node, updating the breadcrumb path.
+     * @param nodeId - The ID of the node to select, or null to deselect
+     */
+    readonly selectNode: (nodeId: string | null) => void;
+
+    /**
+     * Set the currently hovered node.
+     * @param nodeId - The ID of the node being hovered, or null to clear
+     */
+    readonly hoverNode: (nodeId: string | null) => void;
+
+    /**
+     * Focus on a specific node by loading its ancestors and expanding the path.
+     * @param nodeId - The ID of the node to focus on
+     */
+    readonly focusNode: (nodeId: string) => Promise<void>;
+
+    /**
+     * Handle changes to ReactFlow nodes (selection, expansion, etc.).
+     * @param changes - Array of node changes from ReactFlow
+     */
+    readonly onNodesChange: (changes: readonly NodeChange[]) => void;
+
+    /**
+     * Handle changes to ReactFlow edges.
+     * @param changes - Array of edge changes from ReactFlow
+     */
+    readonly onEdgesChange: (changes: readonly EdgeChange[]) => void;
+
+    /**
+     * Set the current search query.
+     * @param query - The search query string
+     */
+    readonly setSearchQuery: (query: string) => void;
+
+    /**
+     * Perform a search for nodes matching the query.
+     * @param query - The search query string
+     */
+    readonly search: (query: string) => Promise<void>;
+
+    /**
+     * Navigate to a search result and clear the search.
+     * @param nodeId - The ID of the node to navigate to
+     */
+    readonly navigateToSearchResult: (nodeId: string) => Promise<void>;
+
+    /**
+     * Get a node from the cache by ID.
+     * @param nodeId - The ID of the node to retrieve
+     * @returns The tree node, or undefined if not found
+     */
+    readonly getNode: (nodeId: string) => TreeNode | undefined;
+
+    /**
+     * Check if a node is currently expanded.
+     * @param nodeId - The ID of the node to check
+     * @returns True if the node is expanded
+     */
+    readonly isExpanded: (nodeId: string) => boolean;
+
+    /**
+     * Reset the store to its initial state, clearing all data.
+     */
+    readonly reset: () => void;
 }
 
 // Convert API node to TreeNode
