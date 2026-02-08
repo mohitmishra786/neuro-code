@@ -13,24 +13,30 @@ interface NeuroCacheDB extends DBSchema {
         value: {
             node: GraphNode;
             timestamp: number;
+            version: number;
         };
-        indexes: { 'by-type': string };
+        indexes: { 'by-type': string; 'by-timestamp': number };
     };
     children: {
         key: string; // parent node ID
         value: {
             children: GraphNode[];
             timestamp: number;
+            version: number;
         };
     };
     metadata: {
         key: string;
-        value: unknown;
+        value: {
+            data: unknown;
+            timestamp: number;
+            version: number;
+        };
     };
 }
 
 const DB_NAME = 'neurocode-cache';
-const DB_VERSION = 1;
+const DB_VERSION = 2; // Incremented for schema changes
 const CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
 
 class CacheService {
@@ -47,15 +53,19 @@ class CacheService {
 
     private async openDatabase(): Promise<void> {
         this.db = await openDB<NeuroCacheDB>(DB_NAME, DB_VERSION, {
-            upgrade(db) {
-                // Nodes store
+            upgrade(db, oldVersion, newVersion, transaction) {
+                if (oldVersion < 2) {
+                    db.deleteObjectStore('nodes');
+                    db.deleteObjectStore('children');
+                    db.deleteObjectStore('metadata');
+                }
+
                 const nodesStore = db.createObjectStore('nodes', { keyPath: 'node.id' });
                 nodesStore.createIndex('by-type', 'node.type');
+                nodesStore.createIndex('by-timestamp', 'timestamp');
 
-                // Children store
                 db.createObjectStore('children');
 
-                // Metadata store
                 db.createObjectStore('metadata');
             },
         });
@@ -65,13 +75,15 @@ class CacheService {
         return Date.now() - timestamp > CACHE_TTL_MS;
     }
 
+    private CURRENT_VERSION = 1;
+
     // Node operations
     async getNode(nodeId: string): Promise<GraphNode | null> {
         await this.init();
         if (!this.db) return null;
 
         const entry = await this.db.get('nodes', nodeId);
-        if (!entry || this.isExpired(entry.timestamp)) {
+        if (!entry || this.isExpired(entry.timestamp) || entry.version !== this.CURRENT_VERSION) {
             return null;
         }
         return entry.node;
@@ -84,6 +96,7 @@ class CacheService {
         await this.db.put('nodes', {
             node,
             timestamp: Date.now(),
+            version: this.CURRENT_VERSION,
         });
     }
 
@@ -97,6 +110,7 @@ class CacheService {
                 tx.store.put({
                     node,
                     timestamp: Date.now(),
+                    version: this.CURRENT_VERSION,
                 }),
             ),
             tx.done,
@@ -109,7 +123,7 @@ class CacheService {
         if (!this.db) return null;
 
         const entry = await this.db.get('children', parentId);
-        if (!entry || this.isExpired(entry.timestamp)) {
+        if (!entry || this.isExpired(entry.timestamp) || entry.version !== this.CURRENT_VERSION) {
             return null;
         }
         return entry.children;
@@ -124,6 +138,7 @@ class CacheService {
             {
                 children,
                 timestamp: Date.now(),
+                version: this.CURRENT_VERSION,
             },
             parentId,
         );
@@ -136,7 +151,7 @@ class CacheService {
 
         const entries = await this.db.getAllFromIndex('nodes', 'by-type', type);
         return entries
-            .filter((e) => !this.isExpired(e.timestamp))
+            .filter((e) => !this.isExpired(e.timestamp) && e.version === this.CURRENT_VERSION)
             .map((e) => e.node);
     }
 
@@ -161,11 +176,11 @@ class CacheService {
         let clearedCount = 0;
         const now = Date.now();
 
-        // Clear expired nodes
         const nodesTx = this.db.transaction('nodes', 'readwrite');
         let nodesCursor = await nodesTx.store.openCursor();
         while (nodesCursor) {
-            if (now - nodesCursor.value.timestamp > CACHE_TTL_MS) {
+            const entry = nodesCursor.value;
+            if (this.isExpired(entry.timestamp) || entry.version !== this.CURRENT_VERSION) {
                 await nodesCursor.delete();
                 clearedCount++;
             }
@@ -173,11 +188,11 @@ class CacheService {
         }
         await nodesTx.done;
 
-        // Clear expired children
         const childrenTx = this.db.transaction('children', 'readwrite');
         let childrenCursor = await childrenTx.store.openCursor();
         while (childrenCursor) {
-            if (now - childrenCursor.value.timestamp > CACHE_TTL_MS) {
+            const entry = childrenCursor.value;
+            if (this.isExpired(entry.timestamp) || entry.version !== this.CURRENT_VERSION) {
                 await childrenCursor.delete();
                 clearedCount++;
             }
@@ -188,16 +203,29 @@ class CacheService {
         return clearedCount;
     }
 
-    async getStats(): Promise<{ nodeCount: number; childrenCount: number }> {
+    async getStats(): Promise<{ nodeCount: number; childrenCount: number; staleCount: number }> {
         await this.init();
-        if (!this.db) return { nodeCount: 0, childrenCount: 0 };
+        if (!this.db) return { nodeCount: 0, childrenCount: 0, staleCount: 0 };
 
         const [nodeCount, childrenCount] = await Promise.all([
             this.db.count('nodes'),
             this.db.count('children'),
         ]);
 
-        return { nodeCount, childrenCount };
+        let staleCount = 0;
+        const now = Date.now();
+        const nodesTx = this.db.transaction('nodes', 'readonly');
+        let nodesCursor = await nodesTx.store.openCursor();
+        while (nodesCursor) {
+            const entry = nodesCursor.value;
+            if (this.isExpired(entry.timestamp) || entry.version !== this.CURRENT_VERSION) {
+                staleCount++;
+            }
+            nodesCursor = await nodesCursor.continue();
+        }
+        await nodesTx.done;
+
+        return { nodeCount, childrenCount, staleCount };
     }
 }
 
