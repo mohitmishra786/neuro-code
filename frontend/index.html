@@ -5,6 +5,52 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="description" content="NeuroCode - Interactive Hierarchical Code Visualization" />
     <title>NeuroCode</title>
+    <script>
+      (function() {
+        var stored = localStorage.getItem('neurocode-theme');
+        var theme = 'dark';
+        if (stored) {
+          try {
+            var parsed = JSON.parse(stored);
+            theme = parsed.state?.mode || 'dark';
+          } catch (e) {
+            theme = 'dark';
+          }
+        }
+        document.documentElement.setAttribute('data-theme', theme);
+      })();
+    </script>
+    <style>
+      :root {
+        --bg-primary: #0f0f19;
+        --bg-secondary: #1a1a24;
+        --text-primary: #f8fafc;
+        --text-secondary: #94a3b8;
+        --accent-primary: #6366f1;
+        --accent-secondary: #8b5cf6;
+        --border-color: #2d2d3a;
+        --shadow-color: rgba(0, 0, 0, 0.3);
+      }
+      :root[data-theme="light"] {
+        --bg-primary: #f8fafc;
+        --bg-secondary: #ffffff;
+        --text-primary: #1e293b;
+        --text-secondary: #64748b;
+        --accent-primary: #6366f1;
+        --accent-secondary: #8b5cf6;
+        --border-color: #e2e8f0;
+        --shadow-color: rgba(0, 0, 0, 0.1);
+      }
+      html, body {
+        margin: 0;
+        padding: 0;
+        background-color: var(--bg-primary);
+        color: var(--text-primary);
+      }
+      .theme-transition {
+        transition: background-color 0.2s ease, color 0.2s ease, border-color 0.2s ease;
+      }
+    </style>
   </head>
   <body>
     <div id="root"></div>
