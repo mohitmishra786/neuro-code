@@ -38,10 +38,16 @@ interface NeuroCacheDB extends DBSchema {
 const DB_NAME = 'neurocode-cache';
 const DB_VERSION = 2; // Incremented for schema changes
 const CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
+const MAX_CACHE_SIZE = 10000; // Maximum number of nodes to cache
+const MAX_CHILDREN_CACHE_SIZE = 1000; // Maximum number of children entries
 
 class CacheService {
     private db: IDBPDatabase<NeuroCacheDB> | null = null;
     private initPromise: Promise<void> | null = null;
+
+    // LRU tracking for eviction
+    private accessOrder: string[] = [];
+    private readonly MAX_ACCESS_TRACKING = MAX_CACHE_SIZE + 1000;
 
     async init(): Promise<void> {
         if (this.db) return;
@@ -77,6 +83,76 @@ class CacheService {
 
     private CURRENT_VERSION = 1;
 
+    private updateAccessOrder(nodeId: string): void {
+        this.accessOrder = this.accessOrder.filter(id => id !== nodeId);
+        this.accessOrder.unshift(nodeId);
+
+        // Trim if too large
+        if (this.accessOrder.length > this.MAX_ACCESS_TRACKING) {
+            this.accessOrder = this.accessOrder.slice(0, this.MAX_ACCESS_TRACKING);
+        }
+    }
+
+    private async evictIfNeeded(): Promise<void> {
+        if (!this.db) return;
+
+        const stats = await this.getStatsInternal();
+        if (stats.nodeCount <= MAX_CACHE_SIZE && stats.childrenCount <= MAX_CHILDREN_CACHE_SIZE) {
+            return;
+        }
+
+        // Evict oldest expired entries first
+        const now = Date.now();
+
+        const nodesTx = this.db.transaction('nodes', 'readwrite');
+        let nodesCursor = await nodesTx.store.openCursor();
+        let evicted = 0;
+        const targetNodeCount = Math.floor(MAX_CACHE_SIZE * 0.8);
+
+        while (nodesCursor && stats.nodeCount - evicted > targetNodeCount) {
+            const entry = nodesCursor.value;
+            const isStale = this.isExpired(entry.timestamp) || entry.version !== this.CURRENT_VERSION;
+            const isOld = entry.timestamp < now - CACHE_TTL_MS;
+
+            if (isStale || isOld) {
+                await nodesCursor.delete();
+                evicted++;
+            }
+            nodesCursor = await nodesCursor.continue();
+        }
+        await nodesTx.done;
+
+        // Evict oldest children entries
+        if (stats.childrenCount > MAX_CHILDREN_CACHE_SIZE) {
+            const childrenTx = this.db.transaction('children', 'readwrite');
+            let childrenCursor = await childrenTx.store.openCursor();
+            evicted = 0;
+            const targetChildrenCount = Math.floor(MAX_CHILDREN_CACHE_SIZE * 0.8);
+
+            while (childrenCursor && stats.childrenCount - evicted > targetChildrenCount) {
+                const entry = childrenCursor.value;
+                const isStale = this.isExpired(entry.timestamp) || entry.version !== this.CURRENT_VERSION;
+                const isOld = entry.timestamp < now - CACHE_TTL_MS;
+
+                if (isStale || isOld) {
+                    await childrenCursor.delete();
+                    evicted++;
+                }
+                childrenCursor = await childrenCursor.continue();
+            }
+            await childrenTx.done;
+        }
+    }
+
+    private async getStatsInternal(): Promise<{ nodeCount: number; childrenCount: number }> {
+        if (!this.db) return { nodeCount: 0, childrenCount: 0 };
+        const [nodeCount, childrenCount] = await Promise.all([
+            this.db.count('nodes'),
+            this.db.count('children'),
+        ]);
+        return { nodeCount, childrenCount };
+    }
+
     // Node operations
     async getNode(nodeId: string): Promise<GraphNode | null> {
         await this.init();
@@ -93,11 +169,37 @@ class CacheService {
         await this.init();
         if (!this.db) return;
 
+        // Check size before adding
+        const stats = await this.getStatsInternal();
+        if (stats.nodeCount >= MAX_CACHE_SIZE) {
+            await this.evictIfNeeded();
+        }
+
+        // Check again after eviction attempt
+        const updatedStats = await this.getStatsInternal();
+        if (updatedStats.nodeCount >= MAX_CACHE_SIZE) {
+            console.warn('[Cache] Cache full, evicting oldest accessed nodes');
+            // Remove oldest entries
+            const nodesTx = this.db.transaction('nodes', 'readwrite');
+            let cursor = await nodesTx.store.openCursor();
+            let removed = 0;
+            const toRemove = 100; // Remove 100 oldest entries
+
+            while (cursor && removed < toRemove) {
+                await cursor.delete();
+                removed++;
+                cursor = await cursor.continue();
+            }
+            await nodesTx.done;
+        }
+
         await this.db.put('nodes', {
             node,
             timestamp: Date.now(),
             version: this.CURRENT_VERSION,
         });
+
+        this.updateAccessOrder(node.id);
     }
 
     async setNodes(nodes: GraphNode[]): Promise<void> {

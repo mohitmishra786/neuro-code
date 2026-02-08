@@ -53,15 +53,14 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     except Exception as e:
         logger.error("neo4j_initialization_failed", error=str(e))
         # Continue without Neo4j for graceful degradation
+        await neo4j_client.close()
         set_neo4j_client(None)
 
     yield
 
-    # Cleanup
+    # Cleanup - close all Neo4j clients to prevent leaks
     logger.info("shutting_down_application")
-    client = get_neo4j_client()
-    if client:
-        await client.close()
+    await Neo4jClient.close_all()
 
 
 def create_app() -> FastAPI:
@@ -96,7 +95,8 @@ def create_app() -> FastAPI:
 
     # Rate limiting middleware (if enabled)
     if settings.api.rate_limit_enabled:
-        application.add_middleware(RateLimitMiddleware, app=application)
+        from api.middleware.rate_limit import RateLimitMiddleware
+        application.add_middleware(RateLimitMiddleware)
 
     # Global exception handler
     @application.exception_handler(Exception)

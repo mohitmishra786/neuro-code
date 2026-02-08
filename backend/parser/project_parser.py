@@ -64,6 +64,9 @@ class ProjectParser(LoggerMixin):
     
     PYTHON_LANG = Language(tspython.language())
     
+    # Maximum symbol table size to prevent memory exhaustion
+    MAX_SYMBOL_TABLE_SIZE = 100000
+    
     # Tree-sitter queries for extracting code structure
     DEFINITION_QUERY_STR = """
     ; Function definitions
@@ -186,11 +189,41 @@ class ProjectParser(LoggerMixin):
         # Collected relationships
         self.relationships: list[Relationship] = []
         
-        # Parse errors
-        self.errors: list[str] = []
-        
         # Package ID mapping: relative path -> PackageInfo
         self._package_map: dict[str, PackageInfo] = {}
+        
+        # Memory tracking
+        self._symbol_count_at_warning = 0
+        
+        # Symbol resolution cache to avoid O(N^2) lookups
+        self._symbol_resolution_cache: dict[str, str | None] = {}
+    
+    def _check_symbol_table_size(self) -> bool:
+        """
+        Check if symbol table has reached warning threshold.
+        
+        Returns:
+            True if within limits, False if limit exceeded
+        """
+        current_count = len(self.symbols)
+        
+        if current_count > self.MAX_SYMBOL_TABLE_SIZE:
+            self.log.error(
+                "symbol_table_exceeded_limit",
+                count=current_count,
+                limit=self.MAX_SYMBOL_TABLE_SIZE,
+            )
+            return False
+        
+        if current_count > self._symbol_count_at_warning + 10000:
+            self.log.warning(
+                "symbol_table_growing",
+                count=current_count,
+                limit=self.MAX_SYMBOL_TABLE_SIZE,
+            )
+            self._symbol_count_at_warning = current_count
+        
+        return True
     
     def parse_project(self) -> tuple[list[PackageInfo], list[ModuleInfo], list[Relationship]]:
         """
@@ -199,6 +232,11 @@ class ProjectParser(LoggerMixin):
         Returns:
             Tuple of (packages, modules, relationships)
         """
+        # Check symbol table size before starting
+        if not self._check_symbol_table_size():
+            self.log.error("aborting_parse_symbol_table_full")
+            return [], [], []
+
         # Find all Python files
         files = self._discover_files()
         self.log.info("discovered_files", count=len(files), root=str(self.root))
@@ -211,13 +249,22 @@ class ProjectParser(LoggerMixin):
         self._pass0_packages(files)
         self.log.info("pass0_complete", packages=len(self.packages))
         
+        if not self._check_symbol_table_size():
+            return [], [], []
+        
         # Pass 1: Discovery - build file -> module ID mapping
         self._pass1_discovery(files)
         self.log.info("pass1_complete", symbols=len(self.symbols))
         
+        if not self._check_symbol_table_size():
+            return [], [], []
+        
         # Pass 2: Local AST - extract definitions and references
         self._pass2_local_ast(files)
         self.log.info("pass2_complete", modules=len(self.modules))
+        
+        if not self._check_symbol_table_size():
+            return [], [], []
         
         # Pass 3: Linker - resolve cross-file references
         self._pass3_linker()
@@ -225,7 +272,130 @@ class ProjectParser(LoggerMixin):
         
         return self.packages, self.modules, self.relationships
     
-    def _discover_files(self) -> list[Path]:
+    async def parse_project_async(self) -> tuple[list[PackageInfo], list[ModuleInfo], list[Relationship]]:
+        """
+        Execute async 3-pass parsing on the entire project.
+        
+        Uses async I/O for file operations.
+        
+        Returns:
+            Tuple of (packages, modules, relationships)
+        """
+        if not self._check_symbol_table_size():
+            self.log.error("aborting_parse_symbol_table_full")
+            return [], [], []
+
+        files = await self._discover_files_async()
+        self.log.info("discovered_files", count=len(files), root=str(self.root))
+        
+        if not files:
+            self.log.warning("no_python_files_found", root=str(self.root))
+            return [], [], []
+        
+        self._pass0_packages(files)
+        self.log.info("pass0_complete", packages=len(self.packages))
+        
+        if not self._check_symbol_table_size():
+            return [], [], []
+        
+        self._pass1_discovery(files)
+        self.log.info("pass1_complete", symbols=len(self.symbols))
+        
+        if not self._check_symbol_table_size():
+            return [], [], []
+        
+        await self._pass2_local_ast_async(files)
+        self.log.info("pass2_complete", modules=len(self.modules))
+        
+        if not self._check_symbol_table_size():
+            return [], [], []
+        
+        self._pass3_linker()
+        self.log.info("pass3_complete", relationships=len(self.relationships))
+        
+        return self.packages, self.modules, self.relationships
+    
+    async def _discover_files_async(self) -> list[Path]:
+        """
+        Find all Python files asynchronously.
+        
+        Returns:
+            Sorted list of Python file paths
+        """
+        import asyncio
+        
+        files = []
+        visited = set()
+        
+        def process_path(file_path: Path) -> Path | None:
+            try:
+                resolved = file_path.resolve(strict=False)
+            except (OSError, RuntimeError) as e:
+                self.log.warning(
+                    "path_resolution_failed",
+                    path=str(file_path),
+                    error=str(e),
+                )
+                return None
+            
+            canonical = str(resolved)
+            if canonical in visited:
+                self.log.warning("skipping_symlink_cycle", path=canonical)
+                return None
+            
+            visited.add(canonical)
+            
+            if self._should_ignore(resolved):
+                return None
+            
+            try:
+                resolved.relative_to(self.root)
+            except ValueError:
+                self.log.warning(
+                    "skipping_external_symlink",
+                    path=str(file_path),
+                    target=str(resolved),
+                )
+                return None
+            
+            return file_path
+        
+        loop = asyncio.get_event_loop()
+        
+        for file_path in self.root.rglob("*.py"):
+            result = await loop.run_in_executor(None, process_path, file_path)
+            if result:
+                files.append(result)
+        
+        return sorted(files)
+    
+    async def _pass2_local_ast_async(self, files: list[Path]) -> None:
+        """
+        Parse each file asynchronously and extract definitions + references.
+        """
+        import asyncio
+        from concurrent.futures import ThreadPoolExecutor
+        
+        semaphore = asyncio.Semaphore(4)
+        
+        async def parse_with_limit(file_path: Path) -> None:
+            async with semaphore:
+                self._parse_file(file_path)
+        
+        tasks = [parse_with_limit(f) for f in files]
+        
+        for i, task in enumerate(asyncio.as_completed(tasks)):
+            await task
+            if (i + 1) % 50 == 0:
+                self.log.info("parsing_progress", completed=i + 1, total=len(files))
+        
+        for file_path in files:
+            try:
+                self._parse_file(file_path)
+            except Exception as e:
+                error_msg = f"{file_path}: {e}"
+                self.errors.append(error_msg)
+                self.log.warning("parse_error", path=str(file_path), error=str(e))
         """
         Find all Python files in the project.
 
@@ -1354,7 +1524,28 @@ class ProjectParser(LoggerMixin):
         2. Module scope
         3. Imported symbols
         4. Builtins (not tracked)
+        
+        Uses caching to avoid O(N^2) lookups.
         """
+        # Check cache first
+        cache_key = f"{file_id}:{parent_class.id if parent_class else ''}:{name}"
+        if cache_key in self._symbol_resolution_cache:
+            return self._symbol_resolution_cache[cache_key]
+        
+        result = self._resolve_symbol_uncached(name, file_id, imports, module, parent_class)
+        
+        self._symbol_resolution_cache[cache_key] = result
+        return result
+    
+    def _resolve_symbol_uncached(
+        self,
+        name: str,
+        file_id: str,
+        imports: dict[str, ImportEntry],
+        module: ModuleInfo,
+        parent_class: ClassInfo | None = None,
+    ) -> str | None:
+        """Internal uncached symbol resolution."""
         # Handle attribute access (x.y.z)
         if "." in name:
             parts = name.split(".")
@@ -1363,7 +1554,6 @@ class ProjectParser(LoggerMixin):
             # Check if first part is an import alias
             if first_part in imports:
                 import_entry = imports[first_part]
-                # Build full qualified name
                 rest = ".".join(parts[1:])
                 full_qualified = f"{import_entry.qualified_name.rsplit('.', 1)[0]}.{rest}" if import_entry.imported_names else f"{import_entry.qualified_name}.{rest}"
                 
@@ -1397,10 +1587,8 @@ class ProjectParser(LoggerMixin):
             if target_id:
                 return target_id
             
-            # Try to resolve the target
             target_id = import_entry.target_id
             if target_id:
-                # Build symbol ID within target module
                 symbol_id = f"{target_id}::{name}"
                 if symbol_id in self.symbols:
                     return symbol_id

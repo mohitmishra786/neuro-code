@@ -25,10 +25,32 @@ class WebSocketManager:
     Handles connection lifecycle and message broadcasting.
     """
 
+    _instances: set["WebSocketManager"] = set()
+
     def __init__(self) -> None:
         """Initialize the WebSocket manager."""
         self._connections: set[WebSocket] = set()
         self._lock = asyncio.Lock()
+        self._heartbeat_task: asyncio.Task[None] | None = None
+        WebSocketManager._instances.add(self)
+
+    @classmethod
+    def get_active_instances(cls) -> set["WebSocketManager"]:
+        """Get all active (non-closed) instances."""
+        return set(cls._instances)
+
+    @classmethod
+    async def close_all(cls) -> None:
+        """Close all connections and cleanup."""
+        for instance in list(cls._instances):
+            async with instance._lock:
+                for ws in list(instance._connections):
+                    try:
+                        await ws.close()
+                    except Exception:
+                        pass
+            instance._connections.clear()
+        cls._instances.clear()
 
     async def connect(self, websocket: WebSocket) -> None:
         """
@@ -41,6 +63,42 @@ class WebSocketManager:
         async with self._lock:
             self._connections.add(websocket)
         logger.info("websocket_connected", total_connections=len(self._connections))
+
+        # Start heartbeat if not running
+        if self._heartbeat_task is None or self._heartbeat_task.done():
+            self._heartbeat_task = asyncio.create_task(self._heartbeat_loop())
+
+    async def _heartbeat_loop(self) -> None:
+        """Send periodic heartbeat to all connections."""
+        while self._connections:
+            await asyncio.sleep(30.0)
+            if self._connections:
+                await self._send_heartbeat()
+
+    async def _send_heartbeat(self) -> None:
+        """Send heartbeat to all active connections."""
+        import time
+        message = json.dumps({
+            "type": "heartbeat",
+            "timestamp": time.time(),
+        })
+        disconnected: set[WebSocket] = set()
+
+        async with self._lock:
+            for connection in self._connections:
+                try:
+                    await connection.send_text(message)
+                except Exception:
+                    disconnected.add(connection)
+
+            self._connections -= disconnected
+
+        if disconnected:
+            logger.info(
+                "heartbeat_disconnect",
+                count=len(disconnected),
+                remaining=len(self._connections),
+            )
 
     async def disconnect(self, websocket: WebSocket) -> None:
         """
@@ -74,7 +132,6 @@ class WebSocketManager:
                     logger.warning("broadcast_failed", error=str(e))
                     disconnected.add(connection)
 
-            # Clean up disconnected clients
             self._connections -= disconnected
 
     async def send_to(self, websocket: WebSocket, message: dict[str, Any]) -> None:

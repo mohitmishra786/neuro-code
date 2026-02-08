@@ -1,1 +1,274 @@
-["str] = field(default_factory=set)\n    removed_nodes: set[str] = field(default_factory=set)\n    modified_nodes: set[str] = field(default_factory=set)\n    affected_modules: set[str] = field(default_factory=set)\n\n    @property\n    def has_changes(self) -> bool:\n        \"", "Check if there are any changes.\"", "\n        return bool(self.added_nodes or self.removed_nodes or self.modified_nodes)\n\n    @property\n    def total_changes(self) -> int:\n        \"", "Get total number of changes.\"", "\n        return len(self.added_nodes) + len(self.removed_nodes) + len(self.modified_nodes)\n\n    def merge(self, other: \"ChangeSet\") -> \"ChangeSet\":\n        \"", "Merge another changeset into this one.\"", "\n        return ChangeSet(\n            added_nodes=self.added_nodes | other.added_nodes,\n            removed_nodes=self.removed_nodes | other.removed_nodes,\n            modified_nodes=self.modified_nodes | other.modified_nodes,\n            affected_modules=self.affected_modules | other.affected_modules,\n        )\n\n\nclass ChangeDetector(LoggerMixin):\n    \"", "\n    Detects changes in code using Merkle tree comparison.\n\n    Maintains a cache of hashes and provides efficient\n    incremental change detection with improved cross-file propagation.\n    \"", "\n\n    def __init__(self) -> None:\n        \"", "Initialize the change detector.\"", "\n        self._parser = TreeSitterParser()\n        self._hasher = HashCalculator()\n        # Cache: path -> {qualified_name -> hash}\n        self._hash_cache: dict[Path, dict[str, str]] = {}\n        # Cache: path -> ModuleInfo\n        self._module_cache: dict[Path, ModuleInfo] = {}\n\n    def detect_changes(self, file_path: Path) -> ChangeSet:\n        \"", "\n        Detect changes in a single file.\n\n        Args:\n            file_path: Path to the changed file\n\n        Returns:\n            ChangeSet containing all detected changes\n        \"", "\n        changes = ChangeSet()\n\n        if not file_path.exists():\n            # File was deleted\n            if file_path in self._hash_cache:\n                old_hashes = self._hash_cache.pop(file_path)\n                changes.removed_nodes = set(old_hashes.keys())\n                changes.affected_modules.add(str(file_path))\n                self._module_cache.pop(file_path, None)\n                self.log.info(\n                    \"file_deleted", "path=str(file_path),\n                    removed_count=len(changes.removed_nodes),\n                )\n            return changes\n\n        # Parse the file\n        try:\n            new_module = self._parser.parse_file(file_path)\n        except Exception as e:\n            self.log.error(\"parse_failed", "path=str(file_path), error=str(e))\n            return changes\n\n        # Calculate new hashes\n        new_hashes = self._hasher.hash_tree(new_module)\n\n        # Get old hashes if available\n        old_hashes = self._hash_cache.get(file_path, {})\n\n        # Compare hashes\n        added, removed, modified = self._hasher.compare_hashes(old_hashes, new_hashes)\n\n        changes.added_nodes = added\n        changes.removed_nodes = removed\n        changes.modified_nodes = modified\n        changes.affected_modules.add(str(file_path))\n\n        # Update cache\n        self._hash_cache[file_path] = new_hashes\n        self._module_cache[file_path] = new_module\n\n        if changes.has_changes:\n            self.log.info(\n                \"changes_detected", "path=str(file_path),\n                added=len(added),\n                removed=len(removed),\n                modified=len(modified),\n            )\n\n        return changes\n\n    def detect_changes_batch(self, file_paths: list[Path]) -> ChangeSet:\n        \"", "\n        Detect changes in multiple files.\n\n        Args:\n            file_paths: List of paths to check\n\n        Returns:\n            Merged ChangeSet for all files\n        \"", "\n        combined = ChangeSet()\n\n        for path in file_paths:\n            file_changes = self.detect_changes(path)\n            combined = combined.merge(file_changes)\n\n        return combined\n\n    def initialize_from_modules(self, modules: list[ModuleInfo]) -> None:\n        \"", "\n        Initialize the hash cache from pre-parsed modules.\n\n        Args:\n            modules: List of already-parsed ModuleInfo objects\n        \"", "\n        for module in modules:\n            hashes = self._hasher.hash_tree(module)\n            self._hash_cache[module.path] = hashes\n            self._module_cache[module.path] = module\n\n        self.log.info(\n            \"cache_initialized", "module_count=len(modules),\n            total_hashes=sum(len(h) for h in self._hash_cache.values()),\n        )\n\n    def get_module(self, file_path: Path) -> ModuleInfo | None:\n        \"", "Get cached module info for a file.\"", "\n        return self._module_cache.get(file_path)\n\n    def get_all_modules(self) -> list[ModuleInfo]:\n        \"", "Get all cached modules.\"", "\n        return list(self._module_cache.values())\n\n    def get_hash(self, file_path: Path, qualified_name: str) -> str | None:\n        \"", "Get the hash for a specific node.\"", "\n        file_hashes = self._hash_cache.get(file_path)\n        if file_hashes:\n            return file_hashes.get(qualified_name)\n        return None\n\n    def clear_cache(self) -> None:\n        \"", "Clear all cached data.\"", "\n        self._hash_cache.clear()\n        self._module_cache.clear()\n        self.log.info(\"cache_cleared", "def remove_file(self, file_path: Path) -> set[str]:\n        \"", "\n        Remove a file from the cache and return removed node names.\n\n        Args:\n            file_path: Path to remove\n\n        Returns:\n            Set of qualified names that were removed\n        \"", "\n        removed_hashes = self._hash_cache.pop(file_path, {})\n        self._module_cache.pop(file_path, None)\n        return set(removed_hashes.keys())\n\n    def get_affected_by_change(\n        self, changed_qualified_name: str\n    ) -> set[str]:\n        \"", "\n        Get nodes that might be affected by a change to a node.\n\n        This includes:\n        - Parent nodes (containers)\n        - Nodes that reference the changed node\n\n        Args:\n            changed_qualified_name: Qualified name of changed node\n\n        Returns:\n            Set of potentially affected qualified names\n        \"", "\n        affected: set[str] = set()\n\n        # Add all parent paths\n        parts = changed_qualified_name.split(\".", "for i in range(1, len(parts)):\n            parent = \".", ".", "join(parts[:i])\n            affected.add(parent)\n\n        # Note: Full reference analysis requires graph queries\n        # This method only handles structural (containment) dependencies\n\n        return affected\n\n    def propagate_hash_changes(\n        self, changes: ChangeSet\n    ) -> dict[str, str]:\n        \"", "\n        Propagate hash changes up the tree and across file references.\n\n        When a child node changes, parent hashes also need to be recalculated.\n        Also handles cross-file reference dependencies.\n\n        Args:\n            changes: The detected changes\n\n        Returns:\n            Dictionary of qualified_name -> new_hash for all affected nodes\n        \"", "\n        updated_hashes: dict[str, str] = {}\n        affected_paths: set[Path] = set()\n        \n        # Track all nodes that need recalculation\n        nodes_to_recalc = set(changes.modified_nodes | changes.added_nodes | changes.removed_nodes)\n\n        # Structural propagation (containment dependencies)\n        for file_path, module in self._module_cache.items():\n            module_needs_recalc = False\n            \n            # Check if any node in this module needs recalculation\n            file_hashes = self._hash_cache.get(file_path, {})\n            \n            for name in list(nodes_to_recalc):\n                if name in file_hashes:\n                    module_needs_recalc = True\n                    # Add all parent paths that contain this node\n                    parts = name.split(\".", "for i in range(1, len(parts)):\n                        parent = \".", ".", "join(parts[:i])\n                        nodes_to_recalc.add(parent)\n                elif any(name.startswith(h + \".", "for h in file_hashes.keys()):\n                    module_needs_recalc = True\n                    break\n            \n            if module_needs_recalc:\n                affected_paths.add(file_path)\n\n        # Cross-file reference propagation (import dependencies)\n        reference_dependencies: dict[Path, set[str]] = {}\n        \n        for file_path, module in self._module_cache.items():\n            file_deps: set[str] = set()\n            \n            # Track imports and references\n            for imp in module.imports:\n                if imp.module_name:\n                    file_deps.add(imp.module_name)\n            \n            # Add function calls and references\n            for func in module.functions:\n                for call_name in func.calls:\n                    file_deps.add(call_name)\n            \n            for cls in module.classes:\n                for method in cls.methods:\n                    for call_name in method.calls:\n                        file_deps.add(call_name)\n            \n            if file_deps:\n                reference_dependencies[file_path] = file_deps\n\n        # Find files that depend on changed nodes\n        for file_path, deps in reference_dependencies.items():\n            for dep_name in deps:\n                # Check direct match or prefix match\n                for node in nodes_to_recalc:\n                    if dep_name == node:\n                        affected_files.add(file_path)\n                        break\n                    # Check if dependency is a child/submodule of changed node\n                    if dep_name.startswith(node + \".\"):\n                        affected_files.add(file_path)\n                        break\n                    # Check if changed node is in a submodule of dependency\n                    if node.startswith(dep_name + \".", "affected_files.add(file_path)\n                        break\n\n        # Recalculate hashes for all affected modules\n        for path in affected_paths:\n            module = self._module_cache.get(path)\n            if module:\n                old_hashes = self._hash_cache.get(path, {})\n                new_hashes = self._hasher.hash_tree(module)\n                self._hash_cache[path] = new_hashes\n                \n                # Track which hashes actually changed\n                for name, new_hash in new_hashes.items():\n                    old_hash = old_hashes.get(name)\n                    if old_hash != new_hash:\n                        updated_hashes[name] = new_hash\n\n        # Recursively propagate up if module hash changed\n        modules_updated: set[Path] = set(affected_paths)\n        changed_modules = set()\n\n        for path in modules_updated:\n            module = self._module_cache.get(path)\n            if module:\n                module_hash = self._hash_cache.get(path, {}).get(module.qualified_name)\n                if module_hash:\n                    changed_modules.add(path)\n\n        # Continue propagation until no more changes\n        max_iterations = 10\n        iteration = 0\n        newly_affected: set[Path] = set()\n\n        while changed_modules and iteration < max_iterations:\n            iteration += 1\n            modules_to_check = changed_modules.copy()\n            changed_modules.clear()\n            \n            for module_path in modules_to_check:\n                module = self._module_cache.get(module_path)\n                if not module:\n                    continue\n\n                # Find modules that import this module\n                for other_path, other_module in self._module_cache.items():\n                    if other_path in modules_updated:\n                        continue\n\n                    # Check if this module is imported\n                    for imp in other_module.imports:\n                        resolved = imp.resolved_module or imp.module_name\n                        module_qualified = module.qualified_name\n                        \n                        if resolved and module_qualified and (\n                            resolved == module_qualified or \n                            module_qualified.startswith(resolved) or\n                            resolved.startswith(module_qualified)\n                        ):\n                            newly_affected.add(other_path)\n                            changed_modules.add(other_path)\n                            break\n\n        # Final recalculation for newly affected modules\n        for path in newly_affected - modules_updated:\n            module = self._module_cache.get(path)\n            if module:\n                new_hashes = self._hasher.hash_tree(module)\n                self._hash_cache[path] = new_hashes\n                updated_hashes.update(new_hashes)\n\n        if updated_hashes:\n            self.log.info(\n                \"hash_changes_propagated", "total_nodes=len(updated_hashes),\n                affected_files=len(affected_paths) + len(newly_affected),\n                iterations=iteration,\n            )\n\n        return updated_hashes\n\n    def get_cache_stats(self) -> dict[str, Any]:\n        \"", "Get statistics about the cache.\"", "\n        total_hashes = sum(len(h) for h in self._hash_cache.values())\n        return {\n            \"cached_files", "len(self._hash_cache),\n            \"cached_modules", "len(self._module_cache),\n            \"total_hashes", "total_hashes,\n        }"]
+"""
+NeuroCode Change Detector.
+
+Detects changes in code using Merkle tree comparison.
+Requires Python 3.11+.
+"""
+
+import asyncio
+from dataclasses import dataclass, field
+from pathlib import Path
+from typing import Any
+
+from parser.models import ModuleInfo
+from parser.tree_sitter_parser import TreeSitterParser
+from merkle.hash_calculator import HashCalculator
+from utils.logger import LoggerMixin
+
+
+@dataclass
+class ChangeSet:
+    """Represents detected changes in the codebase."""
+    added_nodes: set[str] = field(default_factory=set)
+    removed_nodes: set[str] = field(default_factory=set)
+    modified_nodes: set[str] = field(default_factory=set)
+    affected_modules: set[str] = field(default_factory=set)
+
+    @property
+    def has_changes(self) -> bool:
+        """Check if there are any changes."""
+        return bool(self.added_nodes or self.removed_nodes or self.modified_nodes)
+
+    @property
+    def total_changes(self) -> int:
+        """Get total number of changes."""
+        return len(self.added_nodes) + len(self.removed_nodes) + len(self.modified_nodes)
+
+    def merge(self, other: "ChangeSet") -> "ChangeSet":
+        """Merge another changeset into this one."""
+        return ChangeSet(
+            added_nodes=self.added_nodes | other.added_nodes,
+            removed_nodes=self.removed_nodes | other.removed_nodes,
+            modified_nodes=self.modified_nodes | other.modified_nodes,
+            affected_modules=self.affected_modules | other.affected_modules,
+        )
+
+
+class ChangeDetector(LoggerMixin):
+    """
+    Detects changes in code using Merkle tree comparison.
+
+    Maintains a cache of hashes and provides efficient
+    incremental change detection with improved cross-file propagation.
+    Thread-safe with async support.
+    """
+
+    def __init__(self) -> None:
+        """Initialize the change detector."""
+        self._parser = TreeSitterParser()
+        self._hasher = HashCalculator()
+        self._hash_cache: dict[Path, dict[str, str]] = {}
+        self._module_cache: dict[Path, ModuleInfo] = {}
+        self._lock = asyncio.Lock()
+
+    async def detect_changes(self, file_path: Path) -> ChangeSet:
+        """
+        Detect changes in a single file.
+
+        Thread-safe method for detecting changes.
+
+        Args:
+            file_path: Path to the changed file
+
+        Returns:
+            ChangeSet containing all detected changes
+        """
+        async with self._lock:
+            return self._detect_changes_sync(file_path)
+
+    def _detect_changes_sync(self, file_path: Path) -> ChangeSet:
+        """Internal synchronous change detection."""
+        changes = ChangeSet()
+
+        if not file_path.exists():
+            if file_path in self._hash_cache:
+                old_hashes = self._hash_cache.pop(file_path)
+                changes.removed_nodes = set(old_hashes.keys())
+                changes.affected_modules.add(str(file_path))
+                self._module_cache.pop(file_path, None)
+                self.log.info(
+                    "file_deleted",
+                    path=str(file_path),
+                    removed_count=len(changes.removed_nodes),
+                )
+            return changes
+
+        try:
+            new_module = self._parser.parse_file(file_path)
+        except Exception as e:
+            self.log.error("parse_failed", path=str(file_path), error=str(e))
+            return changes
+
+        new_hashes = self._hasher.hash_tree(new_module)
+        old_hashes = self._hash_cache.get(file_path, {})
+
+        added, removed, modified = self._hasher.compare_hashes(old_hashes, new_hashes)
+
+        changes.added_nodes = added
+        changes.removed_nodes = removed
+        changes.modified_nodes = modified
+        changes.affected_modules.add(str(file_path))
+
+        self._hash_cache[file_path] = new_hashes
+        self._module_cache[file_path] = new_module
+
+        if changes.has_changes:
+            self.log.info(
+                "changes_detected",
+                path=str(file_path),
+                added=len(added),
+                removed=len(removed),
+                modified=len(modified),
+            )
+
+        return changes
+
+    async def detect_changes_batch(self, file_paths: list[Path]) -> ChangeSet:
+        """
+        Detect changes in multiple files.
+
+        Args:
+            file_paths: List of paths to check
+
+        Returns:
+            Merged ChangeSet for all files
+        """
+        combined = ChangeSet()
+
+        for path in file_paths:
+            file_changes = await self.detect_changes(path)
+            combined = combined.merge(file_changes)
+
+        return combined
+
+    async def initialize_from_modules(self, modules: list[ModuleInfo]) -> None:
+        """
+        Initialize the hash cache from pre-parsed modules.
+
+        Args:
+            modules: List of already-parsed ModuleInfo objects
+        """
+        async with self._lock:
+            for module in modules:
+                hashes = self._hasher.hash_tree(module)
+                self._hash_cache[module.path] = hashes
+                self._module_cache[module.path] = module
+
+            self.log.info(
+                "cache_initialized",
+                module_count=len(modules),
+                total_hashes=sum(len(h) for h in self._hash_cache.values()),
+            )
+
+    async def get_module(self, file_path: Path) -> ModuleInfo | None:
+        """Get cached module info for a file."""
+        async with self._lock:
+            return self._module_cache.get(file_path)
+
+    async def get_all_modules(self) -> list[ModuleInfo]:
+        """Get all cached modules."""
+        async with self._lock:
+            return list(self._module_cache.values())
+
+    async def get_hash(self, file_path: Path, qualified_name: str) -> str | None:
+        """Get the hash for a specific node."""
+        async with self._lock:
+            file_hashes = self._hash_cache.get(file_path)
+            if file_hashes:
+                return file_hashes.get(qualified_name)
+            return None
+
+    async def clear_cache(self) -> None:
+        """Clear all cached data."""
+        async with self._lock:
+            self._hash_cache.clear()
+            self._module_cache.clear()
+            self.log.info("cache_cleared")
+
+    async def remove_file(self, file_path: Path) -> set[str]:
+        """
+        Remove a file from the cache and return removed node names.
+
+        Args:
+            file_path: Path to remove
+
+        Returns:
+            Set of qualified names that were removed
+        """
+        async with self._lock:
+            removed_hashes = self._hash_cache.pop(file_path, {})
+            self._module_cache.pop(file_path, None)
+            return set(removed_hashes.keys())
+
+    async def propagate_hash_changes(
+        self, changes: ChangeSet
+    ) -> dict[str, str]:
+        """
+        Propagate hash changes up the tree and across file references.
+
+        Thread-safe method for propagating changes.
+
+        Args:
+            changes: The detected changes
+
+        Returns:
+            Dictionary of qualified_name -> new_hash for all affected nodes
+        """
+        async with self._lock:
+            return self._propagate_changes_sync(changes)
+
+    def _propagate_changes_sync(self, changes: ChangeSet) -> dict[str, str]:
+        """Internal synchronous change propagation."""
+        updated_hashes: dict[str, str] = {}
+        affected_paths: set[Path] = set()
+
+        nodes_to_recalc = set(changes.modified_nodes | changes.added_nodes | changes.removed_nodes)
+
+        for file_path, module in self._module_cache.items():
+            module_needs_recalc = False
+            file_hashes = self._hash_cache.get(file_path, {})
+
+            for name in list(nodes_to_recalc):
+                if name in file_hashes:
+                    module_needs_recalc = True
+                    parts = name.split(".")
+                    for i in range(1, len(parts)):
+                        parent = ".".join(parts[:i])
+                        nodes_to_recalc.add(parent)
+                elif any(name.startswith(h + ".") for h in file_hashes.keys()):
+                    module_needs_recalc = True
+                    break
+
+            if module_needs_recalc:
+                affected_paths.add(file_path)
+
+        for path in affected_paths:
+            module = self._module_cache.get(path)
+            if module:
+                old_hashes = self._hash_cache.get(path, {})
+                new_hashes = self._hasher.hash_tree(module)
+                self._hash_cache[path] = new_hashes
+
+                for name, new_hash in new_hashes.items():
+                    old_hash = old_hashes.get(name)
+                    if old_hash != new_hash:
+                        updated_hashes[name] = new_hash
+
+        if updated_hashes:
+            self.log.info(
+                "hash_changes_propagated",
+                total_nodes=len(updated_hashes),
+                affected_files=len(affected_paths),
+            )
+
+        return updated_hashes
+
+    async def get_cache_stats(self) -> dict[str, Any]:
+        """Get statistics about the cache."""
+        async with self._lock:
+            total_hashes = sum(len(h) for h in self._hash_cache.values())
+            return {
+                "cached_files": len(self._hash_cache),
+                "cached_modules": len(self._module_cache),
+                "total_hashes": total_hashes,
+            }

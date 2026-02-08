@@ -126,6 +126,7 @@ class FileWatcher(LoggerMixin):
     with debouncing to prevent excessive updates during rapid saves.
     """
 
+    _instances: set["FileWatcher"] = set()
     _cached_settings: dict[str, Any] | None = None
 
     def __init__(
@@ -170,6 +171,30 @@ class FileWatcher(LoggerMixin):
 
         self._observer: Observer | None = None
         self._running = False
+        self._closed = False
+        FileWatcher._instances.add(self)
+
+    @classmethod
+    def get_active_instances(cls) -> set["FileWatcher"]:
+        """Get all active (non-closed) instances."""
+        return {inst for inst in cls._instances if not inst._closed}
+
+    @classmethod
+    async def close_all(cls) -> None:
+        """Close all active file watchers to prevent resource leaks."""
+        closed_count = 0
+        for instance in list(cls._instances):
+            if not instance._closed:
+                instance.stop()
+                closed_count += 1
+        if closed_count > 0:
+            cls.log.info("closed_all_watchers", count=closed_count)
+
+    def __del__(self) -> None:
+        """Ensure instance is cleaned up when garbage collected."""
+        if not self._closed:
+            self._closed = True
+            FileWatcher._instances.discard(self)
 
     def set_callback(self, callback: Callable[[list[tuple[Path, str]]], Any]) -> None:
         """Set or update the change callback."""
@@ -202,10 +227,12 @@ class FileWatcher(LoggerMixin):
 
     def stop(self) -> None:
         """Stop watching for file changes."""
-        if not self._running:
+        if not self._running or self._closed:
             return
 
-        # Flush any pending changes
+        self._closed = True
+        FileWatcher._instances.discard(self)
+
         self._debouncer.flush()
 
         if self._observer is not None:
