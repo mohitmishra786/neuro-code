@@ -21,7 +21,8 @@ import {
 } from '@/types/graph.types';
 import { ApiError, NeuroCodeError, ErrorCodes } from '@/types/errors';
 
-const API_BASE = 'http://localhost:8000';
+/** API base URL from environment or default. */
+const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:8000';
 
 // Request deduplication with cancellation support
 const pendingRequests = new Map<string, { promise: Promise<unknown>; controller: AbortController }>();
