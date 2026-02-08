@@ -222,9 +222,11 @@ export interface ApiNode {
     readonly type_hint?: string;
 }
 
-// WebSocket message types
+// WebSocket message types with index signature for dynamic properties
 export interface WebSocketMessage {
+    /** Message type discriminator */
     type: string;
+    /** Dynamic properties for message data */
     [key: string]: unknown;
 }
 

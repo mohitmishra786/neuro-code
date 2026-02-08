@@ -30,9 +30,15 @@ function createAbortController(): AbortController {
     return new AbortController();
 }
 
+/**
+ * Generic fetcher function type with AbortSignal support.
+ * @typeParam T - The expected return type of the fetcher
+ */
+type Fetcher<T> = (signal: AbortSignal) => Promise<T>;
+
 async function dedupedFetch<T>(
     key: string,
-    fetcher: (signal: AbortSignal) => Promise<T>,
+    fetcher: Fetcher<T>,
     options?: { timeout?: number },
 ): Promise<T> {
     const existing = pendingRequests.get(key);
@@ -78,6 +84,10 @@ export function cancelAllRequests(): void {
     pendingRequests.clear();
 }
 
+/**
+ * Fetch JSON response with type safety.
+ * @typeParam T - The expected JSON response type
+ */
 async function fetchJson<T>(
     url: string,
     options?: RequestInit & { signal?: AbortSignal },
