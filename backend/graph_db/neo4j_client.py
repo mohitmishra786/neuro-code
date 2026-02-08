@@ -18,13 +18,16 @@ from neo4j.exceptions import ServiceUnavailable, SessionExpired, TransientError
 from graph_db.schema import GraphSchema, NodeLabel, RelationshipLabel
 from parser.models import ModuleInfo, ClassInfo, FunctionInfo, VariableInfo, PackageInfo, Relationship
 from utils.config import get_settings
-from utils.logger import LoggerMixin
+from utils.logger import LoggerMixin, _get_log_level
 
 
 _allowed_relationship_types = {
     "CONTAINS", "IMPORTS", "CALLS", "INSTANTIATES", "INHERITS",
     "DECORATES", "DEFINES", "USES", "RETURNS", "RAISES"
 }
+
+_MAX_RETRY_ATTEMPTS = 3
+_INITIAL_RETRY_DELAY = 0.1
 
 
 def _validate_relationship_type(rel_type: str) -> str:
@@ -159,7 +162,7 @@ class Neo4jClient(LoggerMixin):
         Args:
             query: Cypher query string
             parameters: Query parameters
-            retries: Number of retries on transient errors
+            retries: Number of retries on transient errors (default 3)
             timeout: Query timeout in seconds (default from settings)
 
         Returns:
@@ -167,33 +170,57 @@ class Neo4jClient(LoggerMixin):
 
         Raises:
             TimeoutError: If query execution exceeds timeout
+            ServiceUnavailable: If all retries are exhausted
         """
         if timeout is None:
-            timeout = self._settings.connection_timeout
+            timeout = self._settings.query_timeout
 
         last_error: Exception | None = None
+        bounded_retries = min(retries, _MAX_RETRY_ATTEMPTS)
 
-        for attempt in range(retries):
+        for attempt in range(bounded_retries):
             try:
                 async with self.session() as session:
-                    result = await session.run(query, parameters or {}, timeout=timeout)
+                    result = await asyncio.wait_for(
+                        session.run(query, parameters or {}),
+                        timeout=timeout
+                    )
                     records = await result.data()
                     return records
 
+            except asyncio.TimeoutError:
+                self.log.warning(
+                    "query_timeout",
+                    attempt=attempt + 1,
+                    max_attempts=bounded_retries,
+                    query=query[:100],
+                    timeout=timeout,
+                )
+                raise
+
             except (ServiceUnavailable, SessionExpired, TransientError) as e:
                 last_error = e
+                delay = _INITIAL_RETRY_DELAY * (2 ** attempt)
                 self.log.warning(
                     "query_retry",
                     attempt=attempt + 1,
+                    max_attempts=bounded_retries,
                     error=str(e),
+                    delay=delay,
                 )
-                await asyncio.sleep(0.1 * (2**attempt))  # Exponential backoff
+                await asyncio.sleep(delay)
 
             except Exception as e:
                 self.log.error("query_failed", query=query[:100], error=str(e))
                 raise
 
         if last_error:
+            self.log.error(
+                "query_retries_exhausted",
+                attempts=bounded_retries,
+                query=query[:100],
+                error=str(last_error),
+            )
             raise last_error
         return []
 
@@ -213,58 +240,86 @@ class Neo4jClient(LoggerMixin):
 
         Returns:
             Summary of the write operation
+
+        Raises:
+            TimeoutError: If query execution exceeds timeout
         """
         if timeout is None:
-            timeout = self._settings.connection_timeout
+            timeout = self._settings.query_timeout
 
-        async with self.session() as session:
-            result = await session.run(query, parameters or {}, timeout=timeout)
-            summary = await result.consume()
-            return {
-                "nodes_created": summary.counters.nodes_created,
-                "nodes_deleted": summary.counters.nodes_deleted,
-                "relationships_created": summary.counters.relationships_created,
-                "relationships_deleted": summary.counters.relationships_deleted,
-                "properties_set": summary.counters.properties_set,
-            }
+        try:
+            async with self.session() as session:
+                result = await asyncio.wait_for(
+                    session.run(query, parameters or {}),
+                    timeout=timeout
+                )
+                summary = await result.consume()
+                return {
+                    "nodes_created": summary.counters.nodes_created,
+                    "nodes_deleted": summary.counters.nodes_deleted,
+                    "relationships_created": summary.counters.relationships_created,
+                    "relationships_deleted": summary.counters.relationships_deleted,
+                    "properties_set": summary.counters.properties_set,
+                }
+        except asyncio.TimeoutError:
+            self.log.error("query_timeout_exceeded", query=query[:100], timeout=timeout)
+            raise TimeoutError(f"Query execution exceeded {timeout} seconds")
 
     async def initialize_schema(self) -> None:
         """
         Initialize the graph schema with indexes and constraints.
 
         Safe to call multiple times (uses IF NOT EXISTS).
+        Creates constraints and indexes in parallel for faster initialization.
         
         Raises:
             RuntimeError: If critical schema initialization fails
         """
         self.log.info("initializing_schema")
 
+        constraint_stmts = GraphSchema.get_constraint_creation_statements()
+        index_stmts = GraphSchema.get_index_creation_statements()
+        
         constraint_errors = []
         index_errors = []
         
-        # Create constraints
-        for statement in GraphSchema.get_constraint_creation_statements():
+        async def create_constraint(stmt: str) -> tuple[str, str | None]:
+            """Create a single constraint."""
             try:
-                await self.execute_write(statement)
+                await self.execute_write(stmt)
+                return (stmt, None)
             except Exception as e:
                 error_msg = str(e)
-                self.log.error("constraint_creation_failed", statement=statement, error=error_msg)
-                
-                # Check for critical failures
                 if "ConstraintAlreadyExists" not in error_msg and "Database not available" not in error_msg:
-                    constraint_errors.append((statement, error_msg))
+                    return (stmt, error_msg)
+                return (stmt, None)
         
-        # Create indexes
-        for statement in GraphSchema.get_index_creation_statements():
+        async def create_index(stmt: str) -> tuple[str, str | None]:
+            """Create a single index."""
             try:
-                await self.execute_write(statement)
+                await self.execute_write(stmt)
+                return (stmt, None)
             except Exception as e:
                 error_msg = str(e)
-                self.log.error("index_creation_failed", statement=statement, error=error_msg)
-                
-                # Index failures are less critical but should still be tracked
                 if "IndexAlreadyExists" not in error_msg and "Database not available" not in error_msg:
-                    index_errors.append((statement, error_msg))
+                    return (stmt, error_msg)
+                return (stmt, None)
+        
+        constraint_tasks = [create_constraint(stmt) for stmt in constraint_stmts]
+        index_tasks = [create_index(stmt) for stmt in index_stmts]
+        
+        all_tasks = constraint_tasks + index_tasks
+        results = await asyncio.gather(*all_tasks, return_exceptions=True)
+        
+        for result in results:
+            if isinstance(result, Exception):
+                continue
+            stmt, error = result
+            if error:
+                if stmt in constraint_stmts:
+                    constraint_errors.append((stmt, error))
+                else:
+                    index_errors.append((stmt, error))
 
         # Raise error if critical constraint creation failed
         if constraint_errors:

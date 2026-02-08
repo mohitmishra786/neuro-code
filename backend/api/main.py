@@ -8,7 +8,7 @@ Requires Python 3.11+.
 from contextlib import asynccontextmanager
 from typing import Any, AsyncIterator
 
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, Request, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
@@ -103,17 +103,33 @@ def create_app() -> FastAPI:
     async def global_exception_handler(
         request: Request, exc: Exception
     ) -> JSONResponse:
+        error_id = str(id(exc))
         logger.exception(
             "unhandled_exception",
+            error_id=error_id,
             path=request.url.path,
             method=request.method,
+            error_type=type(exc).__name__,
             error=str(exc),
         )
         return JSONResponse(
             status_code=500,
             content={
                 "error": "Internal server error",
+                "error_id": error_id,
                 "message": str(exc) if settings.is_development else "An unexpected error occurred",
+            },
+        )
+
+    # HTTPException handler for better error responses
+    @application.exception_handler(HTTPException)
+    async def http_exception_handler(
+        request: Request, exc: HTTPException
+    ) -> JSONResponse:
+        return JSONResponse(
+            status_code=exc.status_code,
+            content={
+                "error": exc.detail if isinstance(exc.detail, dict) else {"message": exc.detail},
             },
         )
 

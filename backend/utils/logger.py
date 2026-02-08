@@ -21,6 +21,20 @@ _sensitive_keys = {"password", "token", "secret", "api_key", "private_key", "acc
 _app_context_cache: dict[str, str] | None = None
 
 
+LOG_LEVEL_MAP: dict[str, int] = {
+    "DEBUG": logging.DEBUG,
+    "INFO": logging.INFO,
+    "WARNING": logging.WARNING,
+    "ERROR": logging.ERROR,
+    "CRITICAL": logging.CRITICAL,
+}
+
+
+def _get_log_level(level: str) -> int:
+    """Get standardized log level integer from string."""
+    return LOG_LEVEL_MAP.get(level.upper(), logging.INFO)
+
+
 def _get_app_context() -> dict[str, str]:
     """Get cached app context to avoid repeated settings lookups."""
     global _app_context_cache
