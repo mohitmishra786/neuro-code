@@ -271,9 +271,9 @@ function TreeGraphInner() {
                 showInteractive={false}
                 position="bottom-left"
             />
-            <MiniMap 
+            <MiniMap
                 nodeColor={minimapNodeColor}
-                maskColor={isDark ? 'rgba(0, 0, 0, 0.8)' : 'rgba(255, 255, 255, 0.8)'}
+                maskColor={isDark ? 'rgba(0, 0, 0, 0.75)' : 'rgba(255, 255, 255, 0.85)'}
                 style={{
                     backgroundColor: isDark ? '#1a1a24' : '#f8fafc',
                 }}

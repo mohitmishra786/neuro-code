@@ -2,6 +2,7 @@
  * NeuroCode Theme Store
  *
  * Zustand store for theme management (dark/light mode).
+ * Uses blocking initialization to prevent FOUC.
  */
 
 import { create } from 'zustand';
@@ -15,10 +16,30 @@ interface ThemeState {
     setTheme: (mode: ThemeMode) => void;
 }
 
+const getInitialTheme = (): ThemeMode => {
+    if (typeof window === 'undefined') return 'dark';
+
+    const stored = localStorage.getItem('neurocode-theme');
+    if (stored) {
+        try {
+            const parsed = JSON.parse(stored);
+            return (parsed.state?.mode as ThemeMode) || 'dark';
+        } catch {
+            return 'dark';
+        }
+    }
+    return 'dark';
+};
+
+function applyTheme(mode: ThemeMode): void {
+    if (typeof document === 'undefined') return;
+    document.documentElement.setAttribute('data-theme', mode);
+}
+
 export const useThemeStore = create<ThemeState>()(
     persist(
-        (set) => ({
-            mode: 'dark',
+        (set, get) => ({
+            mode: getInitialTheme(),
 
             toggleTheme: () => {
                 set((state) => {
@@ -44,20 +65,8 @@ export const useThemeStore = create<ThemeState>()(
     )
 );
 
-function applyTheme(mode: ThemeMode) {
-    if (typeof document === 'undefined') return;
-    document.documentElement.setAttribute('data-theme', mode);
-}
-
-// Initialize theme on first load
 if (typeof window !== 'undefined') {
-    const stored = localStorage.getItem('neurocode-theme');
-    try {
-        const mode: ThemeMode = stored ? JSON.parse(stored).state?.mode || 'dark' : 'dark';
-        applyTheme(mode);
-    } catch {
-        applyTheme('dark');
-    }
+    applyTheme(useThemeStore.getState().mode);
 }
 
 export default useThemeStore;

@@ -2,7 +2,64 @@
  * NeuroCode Graph Types
  *
  * Type definitions for the code visualization graph.
+ *
+ * Naming Convention:
+ * - API Response types (ApiNode, SearchResponse, etc.) use snake_case to match
+ *   the backend API responses (qualified_name, line_number, child_count, etc.)
+ * - Internal types (GraphNode, TreeNode, etc.) use camelCase for consistency
+ *   with frontend conventions (qualifiedName, lineNumber, childCount, etc.)
+ * - Transformation functions (apiNodeToGraphNode) handle the conversion.
  */
+
+// Branded types for ID type safety
+// Using opaque types prevents accidentally passing a FileId where a NodeId is expected
+type Brand<T, B> = T & { __brand: B };
+
+export type NodeId = Brand<string, 'NodeId'>;
+export type EdgeId = Brand<string, 'EdgeId'>;
+export type FileId = Brand<string, 'FileId'>;
+
+/**
+ * Type guard to check if a string is a valid NodeId
+ */
+export function isNodeId(value: unknown): value is NodeId {
+    return typeof value === 'string' && value.length > 0;
+}
+
+/**
+ * Type guard to check if a string is a valid EdgeId
+ */
+export function isEdgeId(value: unknown): value is EdgeId {
+    return typeof value === 'string' && value.length > 0 && value.includes('->');
+}
+
+/**
+ * Type guard to check if a string is a valid FileId
+ */
+export function isFileId(value: unknown): value is FileId {
+    return typeof value === 'string' && value.length > 0;
+}
+
+/**
+ * Create a NodeId from a string
+ */
+export function createNodeId(id: string): NodeId {
+    return id as NodeId;
+}
+
+/**
+ * Create an EdgeId from source and target node IDs
+ */
+export function createEdgeId(sourceId: NodeId, targetId: NodeId): EdgeId {
+    return `${sourceId}->${targetId}` as EdgeId;
+}
+
+/**
+ * Create a FileId from a string path
+ */
+export function createFileId(path: string): FileId {
+    return path as FileId;
+}
 
 export type NodeType = 'package' | 'module' | 'class' | 'function' | 'variable' | 'unknown';
 
@@ -77,6 +134,10 @@ export function isValidRelationshipType(value: unknown): value is RelationshipTy
 export type EdgeType = 'contains' | 'calls' | 'imports' | 'inherits';
 
 export const EDGE_TYPE_VALUES = ['contains', 'calls', 'imports', 'inherits'] as const satisfies ReadonlyArray<EdgeType>;
+
+export type NodeType = typeof NODE_TYPE_VALUES[number];
+
+export const NODE_TYPE_CIRCLE = 'circleNode' as const;
 
 export function isValidEdgeType(value: unknown): value is EdgeType {
     return typeof value === 'string' && EDGE_TYPE_VALUES.includes(value as EdgeType);

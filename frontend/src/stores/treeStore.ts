@@ -10,7 +10,7 @@ import { persist, createJSONStorage } from 'zustand/middleware';
 import { Node, Edge, NodeChange, EdgeChange, applyNodeChanges, applyEdgeChanges } from 'reactflow';
 import { api } from '@/services/api';
 import { cache } from '@/services/cache';
-import { GraphNode, NodeType, isValidEdgeType } from '@/types/graph.types';
+import { GraphNode, NodeType, EdgeType, NODE_TYPE_CIRCLE } from '@/types/graph.types';
 
 // Tree node with visual properties
 export interface TreeNode extends GraphNode {
@@ -24,38 +24,6 @@ export interface TreeNode extends GraphNode {
 interface NodeCacheEntry {
     node: TreeNode;
     timestamp: number;
-}
-
-// Serializable expansion state
-interface ExpansionState {
-    expandedIds: string[];
-    isExpanding: string[];
-}
-
-// Convert Map to serializable format
-function mapToSerializable(map: Map<string, TreeNode>): Record<string, NodeCacheEntry> {
-    const record: Record<string, NodeCacheEntry> = {};
-    const now = Date.now();
-    for (const [id, node] of map) {
-        record[id] = { node, timestamp: now };
-    }
-    return record;
-}
-
-// Convert serializable format back to Map
-function serializableToMap(record: Record<string, NodeCacheEntry> | undefined): Map<string, TreeNode> {
-    const map = new Map<string, TreeNode>();
-    if (record) {
-        for (const [id, entry] of Object.entries(record)) {
-            map.set(id, entry.node);
-        }
-    }
-    return map;
-}
-
-// Convert Set to array
-function setToArray<T>(set: ReadonlySet<T>): T[] {
-    return Array.from(set);
 }
 
 // Build parent-to-children mapping for efficient descendant lookups
@@ -75,11 +43,11 @@ function buildParentMap(nodeCache: ReadonlyMap<string, TreeNode>): Map<string, s
 function findDescendants(nodeId: string, parentMap: Map<string, string[]>): Set<string> {
     const descendants = new Set<string>();
     const queue = [nodeId];
-    
+
     while (queue.length > 0) {
         const currentId = queue.shift()!;
         const children = parentMap.get(currentId) ?? [];
-        
+
         for (const childId of children) {
             if (!descendants.has(childId)) {
                 descendants.add(childId);
@@ -87,13 +55,8 @@ function findDescendants(nodeId: string, parentMap: Map<string, string[]>): Set<
             }
         }
     }
-    
-    return descendants;
-}
 
-// Convert array to Set
-function arrayToSet<T>(array: readonly T[] | undefined): Set<T> {
-    return new Set(array ?? []);
+    return descendants;
 }
 
 // Expansion attempt tracking for infinite loop prevention
@@ -116,57 +79,162 @@ export const NODE_COLORS: Record<NodeType, string> = {
 };
 
 interface TreeState {
-    // ReactFlow nodes and edges
-    nodes: readonly Node[];
-    edges: readonly Edge[];
+    /**
+     * ReactFlow nodes for rendering the graph visualization.
+     */
+    readonly nodes: readonly Node[];
 
-    // Node cache for lazy loading
-    nodeCache: ReadonlyMap<string, TreeNode>;
+    /**
+     * ReactFlow edges representing relationships between nodes.
+     */
+    readonly edges: readonly Edge[];
 
-    // Expansion state
-    expandedIds: ReadonlySet<string>;
+    /**
+     * Local cache of all loaded tree nodes, keyed by node ID.
+     * Used for efficient node lookups and lazy loading.
+     */
+    readonly nodeCache: ReadonlyMap<string, TreeNode>;
 
-    // Selection state
-    selectedNodeId: string | null;
-    hoveredNodeId: string | null;
+    /**
+     * Set of node IDs that have been expanded to show children.
+     */
+    readonly expandedIds: ReadonlySet<string>;
 
-    // Breadcrumb path
-    breadcrumbPath: readonly TreeNode[];
+    /**
+     * Currently selected node ID, or null if no selection.
+     */
+    readonly selectedNodeId: string | null;
 
-    // Loading state
-    isLoading: boolean;
-    isExpanding: ReadonlySet<string>;
-    error: string | null;
+    /**
+     * Currently hovered node ID, or null if no hover.
+     */
+    readonly hoveredNodeId: string | null;
 
-    // Network state
-    isOnline: boolean;
+    /**
+     * Array of nodes forming the breadcrumb path from root to selected node.
+     */
+    readonly breadcrumbPath: readonly TreeNode[];
 
-    // Search
-    searchQuery: string;
-    searchResults: readonly GraphNode[];
+    /**
+     * Whether the store is currently loading data.
+     */
+    readonly isLoading: boolean;
 
-    // Actions
-    loadRootNodes: () => Promise<void>;
-    expandNode: (nodeId: string) => Promise<void>;
-    collapseNode: (nodeId: string) => void;
-    toggleNode: (nodeId: string) => Promise<void>;
-    selectNode: (nodeId: string | null) => void;
-    hoverNode: (nodeId: string | null) => void;
-    focusNode: (nodeId: string) => Promise<void>;
+    /**
+     * Set of node IDs currently being expanded (for loading indicators).
+     */
+    readonly isExpanding: ReadonlySet<string>;
 
-    // ReactFlow handlers
-    onNodesChange: (changes: readonly NodeChange[]) => void;
-    onEdgesChange: (changes: readonly EdgeChange[]) => void;
+    /**
+     * Error message if an error occurred, or null if no error.
+     */
+    readonly error: string | null;
 
-    // Search
-    setSearchQuery: (query: string) => void;
-    search: (query: string) => Promise<void>;
-    navigateToSearchResult: (nodeId: string) => Promise<void>;
+    /**
+     * Whether the browser is online and network requests can be made.
+     */
+    readonly isOnline: boolean;
 
-    // Utilities
-    getNode: (nodeId: string) => TreeNode | undefined;
-    isExpanded: (nodeId: string) => boolean;
-    reset: () => void;
+    /**
+     * Current search query text.
+     */
+    readonly searchQuery: string;
+
+    /**
+     * Array of search results matching the current query.
+     */
+    readonly searchResults: readonly GraphNode[];
+
+    /**
+     * Load root nodes from cache or API.
+     * Initializes the node cache and sets up the initial graph state.
+     */
+    readonly loadRootNodes: () => Promise<void>;
+
+    /**
+     * Expand a node to load and display its children.
+     * @param nodeId - The ID of the node to expand
+     */
+    readonly expandNode: (nodeId: string) => Promise<void>;
+
+    /**
+     * Collapse a node, hiding its children and descendants.
+     * @param nodeId - The ID of the node to collapse
+     */
+    readonly collapseNode: (nodeId: string) => void;
+
+    /**
+     * Toggle the expanded state of a node.
+     * @param nodeId - The ID of the node to toggle
+     */
+    readonly toggleNode: (nodeId: string) => Promise<void>;
+
+    /**
+     * Select a node, updating the breadcrumb path.
+     * @param nodeId - The ID of the node to select, or null to deselect
+     */
+    readonly selectNode: (nodeId: string | null) => void;
+
+    /**
+     * Set the currently hovered node.
+     * @param nodeId - The ID of the node being hovered, or null to clear
+     */
+    readonly hoverNode: (nodeId: string | null) => void;
+
+    /**
+     * Focus on a specific node by loading its ancestors and expanding the path.
+     * @param nodeId - The ID of the node to focus on
+     */
+    readonly focusNode: (nodeId: string) => Promise<void>;
+
+    /**
+     * Handle changes to ReactFlow nodes (selection, expansion, etc.).
+     * @param changes - Array of node changes from ReactFlow
+     */
+    readonly onNodesChange: (changes: readonly NodeChange[]) => void;
+
+    /**
+     * Handle changes to ReactFlow edges.
+     * @param changes - Array of edge changes from ReactFlow
+     */
+    readonly onEdgesChange: (changes: readonly EdgeChange[]) => void;
+
+    /**
+     * Set the current search query.
+     * @param query - The search query string
+     */
+    readonly setSearchQuery: (query: string) => void;
+
+    /**
+     * Perform a search for nodes matching the query.
+     * @param query - The search query string
+     */
+    readonly search: (query: string) => Promise<void>;
+
+    /**
+     * Navigate to a search result and clear the search.
+     * @param nodeId - The ID of the node to navigate to
+     */
+    readonly navigateToSearchResult: (nodeId: string) => Promise<void>;
+
+    /**
+     * Get a node from the cache by ID.
+     * @param nodeId - The ID of the node to retrieve
+     * @returns The tree node, or undefined if not found
+     */
+    readonly getNode: (nodeId: string) => TreeNode | undefined;
+
+    /**
+     * Check if a node is currently expanded.
+     * @param nodeId - The ID of the node to check
+     * @returns True if the node is expanded
+     */
+    readonly isExpanded: (nodeId: string) => boolean;
+
+    /**
+     * Reset the store to its initial state, clearing all data.
+     */
+    readonly reset: () => void;
 }
 
 // Convert API node to TreeNode
@@ -193,7 +261,7 @@ function isIdUnique(id: string, nodeCache: ReadonlyMap<string, TreeNode>): boole
 function toReactFlowNode(node: TreeNode, isExpanded: boolean, isSelected: boolean): Node {
     return {
         id: node.id,
-        type: 'circleNode', // Custom node type
+        type: NODE_TYPE_CIRCLE,
         position: { x: node.x || 0, y: node.y || 0 },
         data: {
             label: node.name,
@@ -209,11 +277,17 @@ function toReactFlowNode(node: TreeNode, isExpanded: boolean, isSelected: boolea
     };
 }
 
+// Edge color mapping for edge types
+const EDGE_COLORS: Record<EdgeType, string> = {
+    contains: '#64748b',
+    calls: '#f59e0b',
+    imports: '#6366f1',
+    inherits: '#10b981',
+};
+
 // Create edge between nodes
 function createEdge(sourceId: string, targetId: string, edgeType: EdgeType = 'contains'): Edge {
-    const edgeColor = edgeType === 'contains' ? '#64748b' : 
-                      edgeType === 'calls' ? '#f59e0b' :
-                      edgeType === 'imports' ? '#6366f1' : '#10b981';
+    const edgeColor = EDGE_COLORS[edgeType];
     return {
         id: `${sourceId}->${targetId}`,
         source: sourceId,
@@ -233,20 +307,22 @@ function createEdge(sourceId: string, targetId: string, edgeType: EdgeType = 'co
     };
 }
 
-export const useTreeStore = create<TreeState>((set, get) => ({
-    nodes: [],
-    edges: [],
-    nodeCache: new Map(),
-    expandedIds: new Set(),
-    selectedNodeId: null,
-    hoveredNodeId: null,
-    breadcrumbPath: [],
-    isLoading: false,
-    isExpanding: new Set(),
-    error: null,
-    searchQuery: '',
-    searchResults: [],
-    isOnline: typeof navigator !== 'undefined' ? navigator.onLine : true,
+export const useTreeStore = create<TreeState>()(
+    persist(
+        (set, get) => ({
+            nodes: [],
+            edges: [],
+            nodeCache: new Map(),
+            expandedIds: new Set(),
+            selectedNodeId: null,
+            hoveredNodeId: null,
+            breadcrumbPath: [],
+            isLoading: false,
+            isExpanding: new Set(),
+            error: null,
+            searchQuery: '',
+            searchResults: [],
+            isOnline: typeof navigator !== 'undefined' ? navigator.onLine : true,
 
     loadRootNodes: async () => {
         // Check online status before making network requests
@@ -321,8 +397,8 @@ export const useTreeStore = create<TreeState>((set, get) => ({
     },
 
     expandNode: async (nodeId: string) => {
-        const { nodeCache, expandedIds, isExpanding, isOnline } = get();
-        
+        const { nodeCache, expandedIds, isExpanding, isOnline, selectedNodeId } = get();
+
         // Prevent infinite expansion loops
         const now = Date.now();
         const lastAttempt = expansionAttempts.get(nodeId) ?? 0;
@@ -334,19 +410,19 @@ export const useTreeStore = create<TreeState>((set, get) => ({
             }
         }
         expansionAttempts.set(nodeId, (expansionAttempts.get(nodeId) ?? 0) + 1);
-        
+
         if (expandedIds.has(nodeId) || isExpanding.has(nodeId)) {
             return;
         }
-        
+
         // Check online status before making network requests
         if (typeof navigator !== 'undefined' && !navigator.onLine) {
             const cachedChildren = await cache.getChildren(nodeId);
             if (cachedChildren && cachedChildren.length > 0) {
                 set({ isOnline: false, error: 'You are offline. Using cached data.' });
             } else {
-                set({ 
-                    isOnline: false, 
+                set({
+                    isOnline: false,
                     error: 'You are offline and this data is not cached.',
                     isExpanding: new Set([...isExpanding].filter(id => id !== nodeId)),
                 });
@@ -591,15 +667,15 @@ export const useTreeStore = create<TreeState>((set, get) => ({
         }
     },
 
-    onNodesChange: (changes: NodeChange[]) => {
+    onNodesChange: (changes: readonly NodeChange[]) => {
         set(state => ({
-            nodes: applyNodeChanges(changes, state.nodes),
+            nodes: applyNodeChanges([...changes], state.nodes),
         }));
     },
 
-    onEdgesChange: (changes: EdgeChange[]) => {
+    onEdgesChange: (changes: readonly EdgeChange[]) => {
         set(state => ({
-            edges: applyEdgeChanges(changes, state.edges),
+            edges: applyEdgeChanges([...changes], state.edges),
         }));
     },
 
@@ -712,17 +788,15 @@ export const useTreeStore = create<TreeState>((set, get) => ({
     }),
     merge: (persisted: Partial<TreeState> | undefined, current: TreeState): TreeState => {
         const merged = { ...current, ...persisted };
-        
-        // Restore expandedIds from array
+
         if (persisted?.expandedIds && Array.isArray(persisted.expandedIds)) {
             merged.expandedIds = new Set(persisted.expandedIds);
         }
-        
-        // Restore breadcrumbPath
+
         if (persisted?.breadcrumbPath && Array.isArray(persisted.breadcrumbPath)) {
             merged.breadcrumbPath = persisted.breadcrumbPath;
         }
-        
+
         return merged;
     },
 }));
