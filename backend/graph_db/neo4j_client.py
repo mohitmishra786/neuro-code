@@ -58,52 +58,68 @@ class Neo4jClient(LoggerMixin):
         self._driver: AsyncDriver | None = None
         self._settings = get_settings().neo4j
 
-    async def connect(self) -> None:
+    async def connect(self, timeout: float = 5.0) -> bool:
         """
-        Establish connection to Neo4j.
+        Establish connection to Neo4j asynchronously.
 
         Creates an async driver with connection pooling.
         Validates credentials before proceeding.
 
-        Raises:
-            ValueError: If credentials are invalid or missing
-            ServiceUnavailable: If Neo4j service is unreachable
+        Args:
+            timeout: Connection timeout in seconds (default 5s)
+
+        Returns:
+            True if connection successful, False if failed gracefully
+
+        Note:
+            Does not raise on connection failure - caller should check return value
+            and handle degraded mode appropriately.
         """
         if self._driver is not None:
-            return
+            return True
 
         if not self._settings.uri or not self._settings.user:
-            raise ValueError("Neo4j URI and user must be configured")
+            self.log.warning("neo4j_config_incomplete", uri=bool(self._settings.uri), user=bool(self._settings.user))
+            return False
 
         if self._settings.password == "password" or self._settings.password == "":
-            raise ValueError("Neo4j password must be set (default 'password' is not allowed in production)")
+            self.log.warning("neo4j_default_password")
+            return False
 
-        self._driver = AsyncGraphDatabase.driver(
-            self._settings.uri,
-            auth=(self._settings.user, self._settings.password),
-            max_connection_pool_size=self._settings.max_connection_pool_size,
-            connection_timeout=self._settings.connection_timeout,
-        )
-
-        # Verify connectivity and authenticate
         try:
-            await self._driver.verify_connectivity()
+            self._driver = AsyncGraphDatabase.driver(
+                self._settings.uri,
+                auth=(self._settings.user, self._settings.password),
+                max_connection_pool_size=self._settings.max_connection_pool_size,
+                connection_timeout=timeout,
+            )
+
+            # Verify connectivity with timeout
+            await asyncio.wait_for(self._driver.verify_connectivity(), timeout=timeout)
             
-            # Verify authentication by executing a simple query
+            # Quick auth check
             async with self._driver.session(database=self._settings.database) as session:
-                await session.run("RETURN 1 as test")
-            
+                await asyncio.wait_for(session.run("RETURN 1 as test"), timeout=timeout)
+        
             self.log.info(
                 "neo4j_connected",
                 uri=self._settings.uri,
                 database=self._settings.database,
             )
+            return True
+            
+        except asyncio.TimeoutError:
+            self.log.warning("neo4j_connection_timeout", timeout=timeout)
+            if self._driver:
+                await self._driver.close()
+                self._driver = None
+            return False
         except Exception as e:
-            self.log.error("neo4j_connection_failed", error=str(e))
-            await self.close()
-            if "authentication" in str(e).lower() or "unauthorized" in str(e).lower():
-                raise ValueError(f"Neo4j authentication failed for user '{self._settings.user}'. Check credentials.") from e
-            raise
+            self.log.warning("neo4j_connection_failed", error=str(e))
+            if self._driver:
+                await self._driver.close()
+                self._driver = None
+            return False
 
     async def close(self) -> None:
         """Close the Neo4j connection."""

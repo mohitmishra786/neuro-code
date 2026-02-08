@@ -43,9 +43,13 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     # Initialize Neo4j client
     neo4j_client = Neo4jClient()
     try:
-        await neo4j_client.connect()
-        await neo4j_client.initialize_schema()
-        set_neo4j_client(neo4j_client)
+        connected = await neo4j_client.connect(timeout=10.0)
+        if connected:
+            await neo4j_client.initialize_schema()
+            set_neo4j_client(neo4j_client)
+        else:
+            logger.warning("neo4j_connection_failed_or_incomplete")
+            set_neo4j_client(None)
     except Exception as e:
         logger.error("neo4j_initialization_failed", error=str(e))
         # Continue without Neo4j for graceful degradation
