@@ -10,6 +10,7 @@ from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
 from typing import Any
+from weakref import ReferenceType, ref
 
 
 class NodeType(str, Enum):
