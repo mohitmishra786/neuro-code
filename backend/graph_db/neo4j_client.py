@@ -28,6 +28,7 @@ _allowed_relationship_types = {
 
 _MAX_RETRY_ATTEMPTS = 3
 _INITIAL_RETRY_DELAY = 0.1
+_MAX_ANCESTOR_DEPTH = 100
 
 
 def _validate_relationship_type(rel_type: str) -> str:
@@ -56,10 +57,31 @@ class Neo4jClient(LoggerMixin):
     automatic retry on transient failures.
     """
 
+    _instances: set["Neo4jClient"] = set()
+
     def __init__(self) -> None:
         """Initialize the Neo4j client."""
         self._driver: AsyncDriver | None = None
         self._settings = get_settings().neo4j
+        self._closed = False
+        self._connection_time: float | None = None
+        Neo4jClient._instances.add(self)
+
+    @classmethod
+    def get_active_instances(cls) -> set["Neo4jClient"]:
+        """Get all active (non-closed) instances."""
+        return {inst for inst in cls._instances if not inst._closed}
+
+    @classmethod
+    async def close_all(cls) -> None:
+        """Close all active Neo4j client instances to prevent leaks."""
+        closed_count = 0
+        for instance in list(cls._instances):
+            if not instance._closed:
+                await instance.close()
+                closed_count += 1
+        if closed_count > 0:
+            cls.log.info("closed_all_instances", count=closed_count)
 
     async def connect(self, timeout: float = 5.0) -> bool:
         """
@@ -125,11 +147,27 @@ class Neo4jClient(LoggerMixin):
             return False
 
     async def close(self) -> None:
-        """Close the Neo4j connection."""
+        """Close the Neo4j connection and cleanup resources."""
+        if self._closed:
+            return
+
+        self._closed = True
+        Neo4jClient._instances.discard(self)
+
         if self._driver is not None:
-            await self._driver.close()
+            try:
+                await self._driver.close()
+            except Exception as e:
+                self.log.warning("driver_close_error", error=str(e))
             self._driver = None
-            self.log.info("neo4j_disconnected")
+
+        self.log.info("neo4j_disconnected")
+
+    def __del__(self) -> None:
+        """Ensure instance is cleaned up when garbage collected."""
+        if not self._closed:
+            self._closed = True
+            Neo4jClient._instances.discard(self)
 
     @asynccontextmanager
     async def session(self) -> AsyncIterator[AsyncSession]:
@@ -760,7 +798,7 @@ class Neo4jClient(LoggerMixin):
             List of ancestor nodes from root to parent
         """
         query = """
-        MATCH path = (root)-[:CONTAINS*0..]->(node {id: $node_id})
+        MATCH path = (root)-[:CONTAINS*0..""" + str(_MAX_ANCESTOR_DEPTH) + """]->(node {id: $node_id})
         WHERE NOT ()-[:CONTAINS]->(root)
         UNWIND nodes(path) as ancestor
         WITH ancestor, labels(ancestor) as labels

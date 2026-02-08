@@ -158,10 +158,16 @@ async def get_root_nodes(
     client: Neo4jClient = Depends(get_client),
 ) -> RootNodesResponse:
     """
-    Get all root-level modules.
+    Get root-level packages and modules for tree visualization.
 
-    Returns top-level modules with child counts for initial graph display.
-    Target latency: <100ms
+    Returns all top-level nodes that have no parent container,
+    used as entry points for the code navigation tree.
+
+    Returns:
+        RootNodesResponse containing root nodes and total count
+
+    Raises:
+        HTTPException: If database connection is unavailable
     """
     logger.debug("fetching_root_nodes")
 
@@ -198,11 +204,16 @@ async def get_entry_point(
     client: Neo4jClient = Depends(get_client),
 ) -> EntryPointResponse:
     """
-    Get the entry point module and its direct imports.
-    
-    Looks for common entry points: app.py, main.py, __main__.py, run.py
-    Returns the entry point with its imports for initial flow display.
-    Target latency: <100ms
+    Detect and return the main entry point module for the codebase.
+
+    Looks for common entry points: app.py, main.py, __main__.py, run.py.
+    Falls back to the module with the most children if no entry point is found.
+
+    Returns:
+        EntryPointResponse containing the entry point, its imports, and all modules
+
+    Raises:
+        HTTPException: If database operation fails
     """
     logger.debug("detecting_entry_point")
     
