@@ -70,8 +70,6 @@ export function isValidNodeType(value: unknown): value is NodeType {
 }
 
 export type ValidNodeType = typeof NODE_TYPE_VALUES[number];
-
-export type RelationshipType =
     | 'CONTAINS'
     | 'IMPORTS'
     | 'CALLS'
@@ -134,8 +132,6 @@ export function isValidRelationshipType(value: unknown): value is RelationshipTy
 export type EdgeType = 'contains' | 'calls' | 'imports' | 'inherits';
 
 export const EDGE_TYPE_VALUES = ['contains', 'calls', 'imports', 'inherits'] as const satisfies ReadonlyArray<EdgeType>;
-
-export type NodeType = typeof NODE_TYPE_VALUES[number];
 
 export const NODE_TYPE_CIRCLE = 'circleNode' as const;
 

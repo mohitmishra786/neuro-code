@@ -28,6 +28,7 @@ _allowed_relationship_types = {
 
 _MAX_RETRY_ATTEMPTS = 3
 _INITIAL_RETRY_DELAY = 0.1
+_MAX_ANCESTOR_DEPTH = 100
 
 
 def _validate_relationship_type(rel_type: str) -> str:
@@ -797,7 +798,7 @@ class Neo4jClient(LoggerMixin):
             List of ancestor nodes from root to parent
         """
         query = """
-        MATCH path = (root)-[:CONTAINS*0..]->(node {id: $node_id})
+        MATCH path = (root)-[:CONTAINS*0..""" + str(_MAX_ANCESTOR_DEPTH) + """]->(node {id: $node_id})
         WHERE NOT ()-[:CONTAINS]->(root)
         UNWIND nodes(path) as ancestor
         WITH ancestor, labels(ancestor) as labels
