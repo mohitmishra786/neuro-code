@@ -18,6 +18,21 @@ from utils.config import get_settings
 
 _sensitive_keys = {"password", "token", "secret", "api_key", "private_key", "access_token", "refresh_token", "credentials", "auth"}
 
+_app_context_cache: dict[str, str] | None = None
+
+
+def _get_app_context() -> dict[str, str]:
+    """Get cached app context to avoid repeated settings lookups."""
+    global _app_context_cache
+    if _app_context_cache is None:
+        settings = get_settings()
+        _app_context_cache = {
+            "app": settings.app_name,
+            "version": settings.app_version,
+            "environment": settings.environment,
+        }
+    return _app_context_cache
+
 
 def _sanitize_value(key: str, value: Any) -> Any:
     """Sanitize sensitive values in logs."""
@@ -41,10 +56,7 @@ def _add_app_context(
     logger: logging.Logger, method_name: str, event_dict: dict[str, Any]
 ) -> dict[str, Any]:
     """Add application context to all log entries."""
-    settings = get_settings()
-    event_dict["app"] = settings.app_name
-    event_dict["version"] = settings.app_version
-    event_dict["environment"] = settings.environment
+    event_dict.update(_get_app_context())
     return event_dict
 
 
@@ -141,6 +153,9 @@ class LoggerMixin:
     """
     Mixin class to add logging capability to any class.
 
+    Uses name-mangled private attribute to prevent subclasses from
+    accidentally overwriting the logger instance.
+
     Usage:
         class MyClass(LoggerMixin):
             def my_method(self):
@@ -150,6 +165,8 @@ class LoggerMixin:
     @property
     def log(self) -> structlog.stdlib.BoundLogger:
         """Get logger bound to this class name."""
-        if not hasattr(self, "_logger"):
-            self._logger = get_logger(self.__class__.__name__)
-        return self._logger
+        cls_name = self.__class__.__name__
+        mangled_attr = f"_LoggerMixin__log_{cls_name.replace('.', '_')}"
+        if not hasattr(self, mangled_attr):
+            setattr(self, mangled_attr, get_logger(cls_name))
+        return getattr(self, mangled_attr)

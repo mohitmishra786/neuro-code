@@ -13,6 +13,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from api.dependencies import set_neo4j_client, get_neo4j_client
+from api.middleware.request_id import RequestIDMiddleware
 from api.middleware.rate_limit import RateLimitMiddleware, rate_limit
 from graph_db.neo4j_client import Neo4jClient
 from utils.config import get_settings
@@ -42,9 +43,13 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     # Initialize Neo4j client
     neo4j_client = Neo4jClient()
     try:
-        await neo4j_client.connect()
-        await neo4j_client.initialize_schema()
-        set_neo4j_client(neo4j_client)
+        connected = await neo4j_client.connect(timeout=10.0)
+        if connected:
+            await neo4j_client.initialize_schema()
+            set_neo4j_client(neo4j_client)
+        else:
+            logger.warning("neo4j_connection_failed_or_incomplete")
+            set_neo4j_client(None)
     except Exception as e:
         logger.error("neo4j_initialization_failed", error=str(e))
         # Continue without Neo4j for graceful degradation
@@ -85,6 +90,9 @@ def create_app() -> FastAPI:
         allow_methods=["*"],
         allow_headers=["*"],
     )
+
+    # Request ID middleware for distributed tracing
+    application.add_middleware(RequestIDMiddleware)
 
     # Rate limiting middleware (if enabled)
     if settings.api.rate_limit_enabled:
