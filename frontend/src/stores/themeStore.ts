@@ -8,12 +8,25 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 
+/** Theme mode type - strict union for type safety. */
 type ThemeMode = 'light' | 'dark';
 
+/** Initial state of the theme store. */
 interface ThemeState {
-    mode: ThemeMode;
-    toggleTheme: () => void;
-    setTheme: (mode: ThemeMode) => void;
+    /** Current theme mode. */
+    readonly mode: ThemeMode;
+
+    /**
+     * Toggle between light and dark mode.
+     * Updates the document's data-theme attribute.
+     */
+    readonly toggleTheme: () => void;
+
+    /**
+     * Set the theme mode directly.
+     * @param mode - The theme mode to set ('light' or 'dark')
+     */
+    readonly setTheme: (mode: ThemeMode) => void;
 }
 
 const getInitialTheme = (): ThemeMode => {

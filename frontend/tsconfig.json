@@ -20,6 +20,8 @@
         "noUnusedParameters": true,
         "noFallthroughCasesInSwitch": true,
         "forceConsistentCasingInFileNames": true,
+        "noImplicitAny": true,
+        "strictNullChecks": true,
         "baseUrl": ".",
         "paths": {
             "@/*": [
