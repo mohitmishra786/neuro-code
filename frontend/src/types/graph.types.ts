@@ -11,6 +11,56 @@
  * - Transformation functions (apiNodeToGraphNode) handle the conversion.
  */
 
+// Branded types for ID type safety
+// Using opaque types prevents accidentally passing a FileId where a NodeId is expected
+type Brand<T, B> = T & { __brand: B };
+
+export type NodeId = Brand<string, 'NodeId'>;
+export type EdgeId = Brand<string, 'EdgeId'>;
+export type FileId = Brand<string, 'FileId'>;
+
+/**
+ * Type guard to check if a string is a valid NodeId
+ */
+export function isNodeId(value: unknown): value is NodeId {
+    return typeof value === 'string' && value.length > 0;
+}
+
+/**
+ * Type guard to check if a string is a valid EdgeId
+ */
+export function isEdgeId(value: unknown): value is EdgeId {
+    return typeof value === 'string' && value.length > 0 && value.includes('->');
+}
+
+/**
+ * Type guard to check if a string is a valid FileId
+ */
+export function isFileId(value: unknown): value is FileId {
+    return typeof value === 'string' && value.length > 0;
+}
+
+/**
+ * Create a NodeId from a string
+ */
+export function createNodeId(id: string): NodeId {
+    return id as NodeId;
+}
+
+/**
+ * Create an EdgeId from source and target node IDs
+ */
+export function createEdgeId(sourceId: NodeId, targetId: NodeId): EdgeId {
+    return `${sourceId}->${targetId}` as EdgeId;
+}
+
+/**
+ * Create a FileId from a string path
+ */
+export function createFileId(path: string): FileId {
+    return path as FileId;
+}
+
 export type NodeType = 'package' | 'module' | 'class' | 'function' | 'variable' | 'unknown';
 
 const NODE_TYPE_VALUES = ['package', 'module', 'class', 'function', 'variable', 'unknown'] as const;
