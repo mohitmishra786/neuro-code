@@ -10,7 +10,7 @@ import { persist, createJSONStorage } from 'zustand/middleware';
 import { Node, Edge, NodeChange, EdgeChange, applyNodeChanges, applyEdgeChanges } from 'reactflow';
 import { api } from '@/services/api';
 import { cache } from '@/services/cache';
-import { GraphNode, NodeType, EdgeType } from '@/types/graph.types';
+import { GraphNode, NodeType, EdgeType, NODE_TYPE_CIRCLE } from '@/types/graph.types';
 
 // Tree node with visual properties
 export interface TreeNode extends GraphNode {
@@ -261,7 +261,7 @@ function isIdUnique(id: string, nodeCache: ReadonlyMap<string, TreeNode>): boole
 function toReactFlowNode(node: TreeNode, isExpanded: boolean, isSelected: boolean): Node {
     return {
         id: node.id,
-        type: 'circleNode', // Custom node type
+        type: NODE_TYPE_CIRCLE,
         position: { x: node.x || 0, y: node.y || 0 },
         data: {
             label: node.name,
@@ -277,11 +277,17 @@ function toReactFlowNode(node: TreeNode, isExpanded: boolean, isSelected: boolea
     };
 }
 
+// Edge color mapping for edge types
+const EDGE_COLORS: Record<EdgeType, string> = {
+    contains: '#64748b',
+    calls: '#f59e0b',
+    imports: '#6366f1',
+    inherits: '#10b981',
+};
+
 // Create edge between nodes
 function createEdge(sourceId: string, targetId: string, edgeType: EdgeType = 'contains'): Edge {
-    const edgeColor = edgeType === 'contains' ? '#64748b' : 
-                      edgeType === 'calls' ? '#f59e0b' :
-                      edgeType === 'imports' ? '#6366f1' : '#10b981';
+    const edgeColor = EDGE_COLORS[edgeType];
     return {
         id: `${sourceId}->${targetId}`,
         source: sourceId,

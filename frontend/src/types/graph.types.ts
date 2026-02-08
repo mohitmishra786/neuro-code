@@ -135,6 +135,10 @@ export type EdgeType = 'contains' | 'calls' | 'imports' | 'inherits';
 
 export const EDGE_TYPE_VALUES = ['contains', 'calls', 'imports', 'inherits'] as const satisfies ReadonlyArray<EdgeType>;
 
+export type NodeType = typeof NODE_TYPE_VALUES[number];
+
+export const NODE_TYPE_CIRCLE = 'circleNode' as const;
+
 export function isValidEdgeType(value: unknown): value is EdgeType {
     return typeof value === 'string' && EDGE_TYPE_VALUES.includes(value as EdgeType);
 }

@@ -2,30 +2,37 @@
  * TypedEdge Component
  *
  * Custom ReactFlow edge with different styles based on relationship type.
- * - CONTAINS: Solid line (hierarchy)
- * - CALLS: Dashed animated line (function calls)
- * - IMPORTS: Dotted line (module imports)
- * - INHERITS: Thick solid line (class inheritance)
+ * - contains: Solid line (hierarchy)
+ * - calls: Dashed animated line (function calls)
+ * - imports: Dotted line (module imports)
+ * - inherits: Thick solid line (class inheritance)
  */
 
 import { memo } from 'react';
 import { EdgeProps, getBezierPath, EdgeLabelRenderer } from 'reactflow';
+import { EdgeType } from '@/types/graph.types';
 
 interface TypedEdgeData {
-    edgeType?: 'contains' | 'calls' | 'imports' | 'inherits';
+    edgeType?: EdgeType;
     label?: string;
 }
 
-// Edge colors by type
-const EDGE_COLORS = {
-    contains: '#64748b',  // Slate gray
-    calls: '#f59e0b',     // Amber
-    imports: '#6366f1',   // Indigo
-    inherits: '#10b981',  // Emerald
+export const NODE_TYPE_CIRCLE = 'circleNode' as const;
+
+const EDGE_COLORS: Record<EdgeType, string> = {
+    contains: '#64748b',
+    calls: '#f59e0b',
+    imports: '#6366f1',
+    inherits: '#10b981',
 };
 
-// Edge styles
-const EDGE_STYLES = {
+interface EdgeStyleConfig {
+    strokeWidth: number;
+    strokeDasharray: string | undefined;
+    animated: boolean;
+}
+
+const EDGE_STYLES: Record<EdgeType, EdgeStyleConfig> = {
     contains: {
         strokeWidth: 2,
         strokeDasharray: undefined,
@@ -64,7 +71,7 @@ function TypedEdgeComponent({
     const edgeType = data?.edgeType || 'contains';
     const color = EDGE_COLORS[edgeType];
     const edgeStyle = EDGE_STYLES[edgeType];
-    
+
     const [edgePath, labelX, labelY] = getBezierPath({
         sourceX,
         sourceY,
@@ -73,10 +80,9 @@ function TypedEdgeComponent({
         targetY,
         targetPosition,
     });
-    
+
     return (
         <>
-            {/* Invisible wider path for easier selection */}
             <path
                 id={`${id}-selector`}
                 className="react-flow__edge-path"
@@ -87,8 +93,7 @@ function TypedEdgeComponent({
                     fill: 'none',
                 }}
             />
-            
-            {/* Main edge path */}
+
             <path
                 id={id}
                 className={`typed-edge typed-edge-${edgeType} ${selected ? 'selected' : ''}`}
@@ -103,8 +108,7 @@ function TypedEdgeComponent({
                 }}
                 markerEnd={markerEnd}
             />
-            
-            {/* Animated dash for calls */}
+
             {edgeStyle.animated && (
                 <path
                     className="typed-edge-animated"
@@ -118,8 +122,7 @@ function TypedEdgeComponent({
                     }}
                 />
             )}
-            
-            {/* Edge label */}
+
             {data?.label && (
                 <EdgeLabelRenderer>
                     <div
