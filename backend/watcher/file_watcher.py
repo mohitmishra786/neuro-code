@@ -126,6 +126,8 @@ class FileWatcher(LoggerMixin):
     with debouncing to prevent excessive updates during rapid saves.
     """
 
+    _cached_settings: dict[str, Any] | None = None
+
     def __init__(
         self,
         root_path: Path,
@@ -144,12 +146,17 @@ class FileWatcher(LoggerMixin):
             ignore_patterns: Glob patterns to ignore
             recursive: Whether to watch subdirectories
         """
-        settings = get_settings()
+        if FileWatcher._cached_settings is None:
+            settings = get_settings()
+            FileWatcher._cached_settings = {
+                "ignore_patterns": settings.parser.ignore_patterns,
+                "debounce_delay": settings.watcher.debounce_delay_ms,
+            }
 
         self._root_path = root_path
         self._recursive = recursive
-        self._ignore_patterns = ignore_patterns or settings.parser.ignore_patterns
-        self._debounce_delay = debounce_delay_ms or settings.watcher.debounce_delay_ms
+        self._ignore_patterns = ignore_patterns or FileWatcher._cached_settings["ignore_patterns"]
+        self._debounce_delay = debounce_delay_ms or FileWatcher._cached_settings["debounce_delay"]
 
         self._debouncer = Debouncer(
             delay_ms=self._debounce_delay,

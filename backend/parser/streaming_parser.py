@@ -35,17 +35,98 @@ class StreamingProjectParser(LoggerMixin):
         self.root = root_path.resolve()
         self.chunk_size = chunk_size
         self._base_parser = ProjectParser(self.root)
-        
+
+        settings = get_settings()
+        self._max_workers = settings.parser.max_workers
+
         # Streaming state
         self._total_files = 0
         self._processed_files = 0
         self._current_chunk: list[Path] = []
-        
+
         # Results accumulated across chunks
         self._packages: list[PackageInfo] = []
         self._modules: list[ModuleInfo] = []
         self._relationships: list[Relationship] = []
         self._errors: list[str] = []
+
+    async def _discover_files_async(self) -> list[Path]:
+        """Discover files asynchronously using thread pool."""
+        def discover():
+            return self._base_parser._discover_files()
+        return await asyncio.to_thread(discover)
+
+    async def _parse_chunk_async(self, chunk_files: list[Path]) -> tuple[list[PackageInfo], list[ModuleInfo], list[Relationship], list[str]]:
+        """Parse a single chunk asynchronously."""
+        def parse():
+            chunk_parser = ProjectParser(self.root)
+            chunk_parser._discover_files = lambda files=chunk_files: files
+            return chunk_parser.parse_project()
+
+        packages, modules, relationships = await asyncio.to_thread(parse)
+        return packages, modules, relationships, []
+
+    async def parse_project_parallel(self) -> tuple[list[PackageInfo], list[ModuleInfo], list[Relationship], list[str]]:
+        """
+        Parse project with parallel file processing.
+
+        Uses semaphore to limit concurrent chunks and thread pool for I/O.
+
+        Returns:
+            Tuple of (packages, modules, relationships, errors)
+        """
+        self.log.info("starting_parallel_parse", chunk_size=self.chunk_size, max_workers=self._max_workers)
+
+        all_files = await self._discover_files_async()
+        self._total_files = len(all_files)
+
+        if not all_files:
+            return [], [], [], []
+
+        chunks = [
+            all_files[i:i + self.chunk_size]
+            for i in range(0, self._total_files, self.chunk_size)
+        ]
+
+        semaphore = asyncio.Semaphore(self._max_workers)
+
+        async def process_chunk_with_semaphore(chunk_files: list[Path]) -> tuple[list[PackageInfo], list[ModuleInfo], list[Relationship], list[str]]:
+            async with semaphore:
+                return await self._parse_chunk_async(chunk_files)
+
+        tasks = [process_chunk_with_semaphore(chunk) for chunk in chunks]
+
+        async def gather_with_errors() -> list[tuple[list[PackageInfo], list[ModuleInfo], list[Relationship], list[str]]]:
+            results = []
+            for task in asyncio.as_completed(tasks):
+                try:
+                    result = await task
+                    results.append(result)
+                except Exception as e:
+                    self._errors.append(str(e))
+            return results
+
+        all_results = await gather_with_errors()
+
+        seen_ids = set()
+        for packages, modules, relationships, _ in all_results:
+            self._modules.extend(modules)
+            self._relationships.extend(relationships)
+
+            for pkg in packages:
+                if pkg.id not in seen_ids:
+                    seen_ids.add(pkg.id)
+                    self._packages.append(pkg)
+
+        self._processed_files = self._total_files
+
+        self.log.info(
+            "parallel_parse_complete",
+            total_files=self._total_files,
+            total_errors=len(self._errors),
+        )
+
+        return self._packages, self._modules, self._relationships, self._errors
 
     def parse_project_streaming(self) -> Iterator[tuple[list[PackageInfo], list[ModuleInfo], list[Relationship], list[str]]]:
         """
@@ -54,21 +135,19 @@ class StreamingProjectParser(LoggerMixin):
         Yields:
             Tuple of (packages, modules, relationships, errors) for each chunk
         """
-        # Discover all files first
         all_files = self._base_parser._discover_files()
         self._total_files = len(all_files)
-        
+
         self.log.info(
             "starting_streaming_parse",
             total_files=self._total_files,
             chunk_size=self.chunk_size,
         )
 
-        # Process files in chunks
         for chunk_start in range(0, self._total_files, self.chunk_size):
             chunk_end = min(chunk_start + self.chunk_size, self._total_files)
             chunk_files = all_files[chunk_start:chunk_end]
-            
+
             self.log.info(
                 "processing_chunk",
                 chunk_start=chunk_start,
@@ -76,25 +155,16 @@ class StreamingProjectParser(LoggerMixin):
                 chunk_size=len(chunk_files),
             )
 
-            # Process this chunk
             try:
-                # Create a temporary parser for this chunk
                 chunk_parser = ProjectParser(self.root)
-                
-                # Override discovered files to process only this chunk
-                chunk_files_set = set(chunk_files)
-                original_discover = chunk_parser._discover_files
-                chunk_parser._discover_files = lambda: chunk_files
-                
-                # Parse the chunk
+                chunk_parser._discover_files = lambda files=chunk_files: files
+
                 packages, modules, relationships = chunk_parser.parse_project()
-                
-                # Accumulate results
+
                 self._packages.extend(packages)
                 self._modules.extend(modules)
                 self._relationships.extend(relationships)
-                
-                # Filter out duplicate packages (they might appear in multiple chunks)
+
                 unique_packages = []
                 seen_ids = set()
                 for pkg in self._packages:
@@ -102,15 +172,13 @@ class StreamingProjectParser(LoggerMixin):
                         seen_ids.add(pkg.id)
                         unique_packages.append(pkg)
                 self._packages = unique_packages
-                
+
                 self._processed_files += len(chunk_files)
-                
-                # Yield results for this chunk
+
                 yield packages, modules, relationships, []
-                
-                # Clear chunk parser to free memory
+
                 del chunk_parser
-                
+
             except Exception as e:
                 error_msg = f"Chunk {chunk_start}-{chunk_end}: {e}"
                 self._errors.append(error_msg)
@@ -131,74 +199,6 @@ class StreamingProjectParser(LoggerMixin):
         Returns:
             Tuple of (packages, modules, relationships, errors)
         """
-        return self._packages, self._modules, self._relationships, self._errors
-
-    async def parse_project_async(self) -> tuple[list[PackageInfo], list[ModuleInfo], list[Relationship], list[str]]:
-        """
-        Parse project asynchronously with semaphored concurrency control.
-
-        Processes chunks concurrently but with a semaphore to limit memory usage.
-
-        Returns:
-            Tuple of (packages, modules, relationships, errors)
-        """
-        settings = get_settings()
-        max_concurrent_chunks = getattr(settings.parser, 'max_workers', 4)
-        semaphore = asyncio.Semaphore(max_concurrent_chunks)
-
-        async def process_chunk(chunk_files: list[Path]) -> tuple[list[PackageInfo], list[ModuleInfo], list[Relationship], list[str]]:
-            async with semaphore:
-                def _parse():
-                    chunk_parser = ProjectParser(self.root)
-                    chunk_parser._discover_files = lambda: chunk_files
-                    return chunk_parser.parse_project()
-                
-                return await asyncio.to_thread(_parse)
-
-        # Discover all files
-        all_files = self._base_parser._discover_files()
-        self._total_files = len(all_files)
-
-        # Split into chunks
-        chunks = [
-            all_files[i:i + self.chunk_size]
-            for i in range(0, self._total_files, self.chunk_size)
-        ]
-
-        self.log.info(
-            "starting_async_parse",
-            total_files=self._total_files,
-            chunks=len(chunks),
-            max_concurrent=max_concurrent_chunks,
-        )
-
-        # Process chunks concurrently
-        tasks = [process_chunk(chunk) for chunk in chunks]
-        results = await asyncio.gather(*tasks, return_exceptions=True)
-
-        # Accumulate results
-        seen_ids = set()
-        for result in results:
-            if isinstance(result, Exception):
-                self._errors.append(str(result))
-                continue
-
-            packages, modules, relationships = result
-            self._modules.extend(modules)
-            self._relationships.extend(relationships)
-            
-            # Deduplicate packages
-            for pkg in packages:
-                if pkg.id not in seen_ids:
-                    seen_ids.add(pkg.id)
-                    self._packages.append(pkg)
-
-        self.log.info(
-            "async_parse_complete",
-            total_files=self._total_files,
-            total_errors=len(self._errors),
-        )
-
         return self._packages, self._modules, self._relationships, self._errors
 
     def get_progress(self) -> dict[str, float]:
