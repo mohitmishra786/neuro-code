@@ -10,7 +10,7 @@ import { persist, createJSONStorage } from 'zustand/middleware';
 import { Node, Edge, NodeChange, EdgeChange, applyNodeChanges, applyEdgeChanges } from 'reactflow';
 import { api } from '@/services/api';
 import { cache } from '@/services/cache';
-import { GraphNode, NodeType, isValidEdgeType } from '@/types/graph.types';
+import { GraphNode, NodeType, EdgeType } from '@/types/graph.types';
 
 // Tree node with visual properties
 export interface TreeNode extends GraphNode {
@@ -24,38 +24,6 @@ export interface TreeNode extends GraphNode {
 interface NodeCacheEntry {
     node: TreeNode;
     timestamp: number;
-}
-
-// Serializable expansion state
-interface ExpansionState {
-    expandedIds: string[];
-    isExpanding: string[];
-}
-
-// Convert Map to serializable format
-function mapToSerializable(map: Map<string, TreeNode>): Record<string, NodeCacheEntry> {
-    const record: Record<string, NodeCacheEntry> = {};
-    const now = Date.now();
-    for (const [id, node] of map) {
-        record[id] = { node, timestamp: now };
-    }
-    return record;
-}
-
-// Convert serializable format back to Map
-function serializableToMap(record: Record<string, NodeCacheEntry> | undefined): Map<string, TreeNode> {
-    const map = new Map<string, TreeNode>();
-    if (record) {
-        for (const [id, entry] of Object.entries(record)) {
-            map.set(id, entry.node);
-        }
-    }
-    return map;
-}
-
-// Convert Set to array
-function setToArray<T>(set: ReadonlySet<T>): T[] {
-    return Array.from(set);
 }
 
 // Build parent-to-children mapping for efficient descendant lookups
@@ -75,11 +43,11 @@ function buildParentMap(nodeCache: ReadonlyMap<string, TreeNode>): Map<string, s
 function findDescendants(nodeId: string, parentMap: Map<string, string[]>): Set<string> {
     const descendants = new Set<string>();
     const queue = [nodeId];
-    
+
     while (queue.length > 0) {
         const currentId = queue.shift()!;
         const children = parentMap.get(currentId) ?? [];
-        
+
         for (const childId of children) {
             if (!descendants.has(childId)) {
                 descendants.add(childId);
@@ -87,13 +55,8 @@ function findDescendants(nodeId: string, parentMap: Map<string, string[]>): Set<
             }
         }
     }
-    
-    return descendants;
-}
 
-// Convert array to Set
-function arrayToSet<T>(array: readonly T[] | undefined): Set<T> {
-    return new Set(array ?? []);
+    return descendants;
 }
 
 // Expansion attempt tracking for infinite loop prevention
@@ -323,8 +286,8 @@ export const useTreeStore = create<TreeState>()(
     },
 
     expandNode: async (nodeId: string) => {
-        const { nodeCache, expandedIds, isExpanding, isOnline } = get();
-        
+        const { nodeCache, expandedIds, isExpanding, isOnline, selectedNodeId } = get();
+
         // Prevent infinite expansion loops
         const now = Date.now();
         const lastAttempt = expansionAttempts.get(nodeId) ?? 0;
@@ -336,19 +299,19 @@ export const useTreeStore = create<TreeState>()(
             }
         }
         expansionAttempts.set(nodeId, (expansionAttempts.get(nodeId) ?? 0) + 1);
-        
+
         if (expandedIds.has(nodeId) || isExpanding.has(nodeId)) {
             return;
         }
-        
+
         // Check online status before making network requests
         if (typeof navigator !== 'undefined' && !navigator.onLine) {
             const cachedChildren = await cache.getChildren(nodeId);
             if (cachedChildren && cachedChildren.length > 0) {
                 set({ isOnline: false, error: 'You are offline. Using cached data.' });
             } else {
-                set({ 
-                    isOnline: false, 
+                set({
+                    isOnline: false,
                     error: 'You are offline and this data is not cached.',
                     isExpanding: new Set([...isExpanding].filter(id => id !== nodeId)),
                 });
@@ -593,15 +556,15 @@ export const useTreeStore = create<TreeState>()(
         }
     },
 
-    onNodesChange: (changes: NodeChange[]) => {
+    onNodesChange: (changes: readonly NodeChange[]) => {
         set(state => ({
-            nodes: applyNodeChanges(changes, state.nodes),
+            nodes: applyNodeChanges([...changes], state.nodes),
         }));
     },
 
-    onEdgesChange: (changes: EdgeChange[]) => {
+    onEdgesChange: (changes: readonly EdgeChange[]) => {
         set(state => ({
-            edges: applyEdgeChanges(changes, state.edges),
+            edges: applyEdgeChanges([...changes], state.edges),
         }));
     },
 
