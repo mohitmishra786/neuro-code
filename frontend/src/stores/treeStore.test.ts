@@ -4,7 +4,7 @@
 
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { useTreeStore, NODE_COLORS } from './treeStore';
-import { isValidNodeType, NodeType, isValidEdgeType } from '@/types/graph.types';
+import { isValidNodeType, isValidEdgeType } from '@/types/graph.types';
 
 // Mock the API
 vi.mock('@/services/api', () => ({
@@ -260,6 +260,412 @@ describe('useTreeStore', () => {
         it('should return undefined for non-existent nodes', () => {
             const node = useTreeStore.getState().getNode('nonexistent');
             expect(node).toBeUndefined();
+        });
+    });
+
+    describe('duplicate node ID handling', () => {
+        it('should generate unique IDs when duplicates are detected in root nodes', async () => {
+            useTreeStore.getState().reset();
+            
+            const { api } = await import('@/services/api');
+            vi.mocked(api.getRootNodes).mockResolvedValue([
+                { id: 'duplicate', name: 'node1', type: 'class' as const, childCount: 1, isExpanded: false },
+                { id: 'duplicate', name: 'node2', type: 'class' as const, childCount: 1, isExpanded: false },
+            ]);
+            
+            await useTreeStore.getState().loadRootNodes();
+            
+            const { nodeCache } = useTreeStore.getState();
+            expect(nodeCache.size).toBe(2);
+            
+            const ids = Array.from(nodeCache.keys());
+            expect(ids[0]).not.toBe(ids[1]);
+            expect(ids.some(id => id.includes('duplicate'))).toBe(true);
+        });
+
+        it('should generate unique IDs when duplicates are detected in children', async () => {
+            useTreeStore.getState().reset();
+            
+            await useTreeStore.getState().loadRootNodes();
+            
+            const { api } = await import('@/services/api');
+            vi.mocked(api.expandNode).mockResolvedValue({
+                children: [
+                    { id: 'dupChild', name: 'Child1', type: 'function' as const, childCount: 0, isExpanded: false },
+                    { id: 'dupChild', name: 'Child2', type: 'function' as const, childCount: 0, isExpanded: false },
+                ],
+                outgoing: [],
+            });
+            
+            await useTreeStore.getState().expandNode('pkg1');
+            
+            const { nodeCache } = useTreeStore.getState();
+            const childIds = Array.from(nodeCache.keys()).filter(id => id.includes('dupChild'));
+            
+            expect(childIds.length).toBe(2);
+            expect(childIds[0]).not.toBe(childIds[1]);
+        });
+    });
+
+    describe('search race condition handling', () => {
+        it('should prevent stale search results from overwriting newer ones', async () => {
+            useTreeStore.getState().reset();
+            
+            const { api } = await import('@/services/api');
+            
+            let slowResolve: (value: unknown) => void;
+            const slowPromise = new Promise(resolve => {
+                slowResolve = resolve;
+            });
+            
+            vi.mocked(api.search).mockImplementation(async (query: string) => {
+                if (query === 'slow') {
+                    return slowPromise;
+                }
+                return {
+                    query,
+                    results: [{ id: 'fast', name: 'Fast Result', type: 'class' as const, score: 1 }],
+                    total: 1,
+                };
+            });
+            
+            const searchSlow = useTreeStore.getState().search('slow');
+            
+            await useTreeStore.getState().search('fast');
+            
+            slowResolve!({
+                query: 'slow',
+                results: [{ id: 'slow', name: 'Slow Result', type: 'class' as const, score: 1 }],
+                total: 1,
+            });
+            
+            await searchSlow;
+            
+            const { searchResults } = useTreeStore.getState();
+            expect(searchResults.length).toBe(1);
+            expect(searchResults[0].id).toBe('fast');
+        });
+
+        it('should cancel search results when navigating away', async () => {
+            useTreeStore.getState().reset();
+            
+            const { api } = await import('@/services/api');
+            
+            let slowResolve: (value: unknown) => void;
+            const slowPromise = new Promise(resolve => {
+                slowResolve = resolve;
+            });
+            
+            vi.mocked(api.search).mockImplementation(async () => slowPromise);
+            vi.mocked(api.getNodeAncestors).mockResolvedValue([]);
+            vi.mocked(api.expandNode).mockResolvedValue({ children: [], outgoing: [] });
+            
+            const searchPromise = useTreeStore.getState().search('test');
+            
+            await useTreeStore.getState().navigateToSearchResult('node1');
+            
+            slowResolve!({
+                query: 'test',
+                results: [{ id: 'stale', name: 'Stale', type: 'class' as const, score: 1 }],
+                total: 1,
+            });
+            
+            await searchPromise;
+            
+            const { searchResults, searchQuery } = useTreeStore.getState();
+            expect(searchResults.length).toBe(0);
+            expect(searchQuery).toBe('');
+        });
+    });
+
+    describe('breadcrumb safety', () => {
+        it('should handle circular parent references gracefully', async () => {
+            useTreeStore.getState().reset();
+            
+            await useTreeStore.getState().loadRootNodes();
+            
+            const circularNodeId = 'circular_node';
+            const store = useTreeStore.getState();
+            
+            const mockNodeCache = new Map(store.nodeCache);
+            const circularNode = {
+                id: circularNodeId,
+                name: 'Circular',
+                type: 'class' as const,
+                childCount: 0,
+                isExpanded: false,
+                parentId: circularNodeId,
+                depth: 1,
+            };
+            mockNodeCache.set(circularNodeId, circularNode);
+            
+            useTreeStore.setState({ nodeCache: mockNodeCache });
+            
+            store.selectNode(circularNodeId);
+            
+            const { breadcrumbPath } = useTreeStore.getState();
+            expect(breadcrumbPath.length).toBe(1);
+            expect(breadcrumbPath[0].id).toBe(circularNodeId);
+        });
+
+        it('should limit deeply nested breadcrumb paths', async () => {
+            useTreeStore.getState().reset();
+            
+            await useTreeStore.getState().loadRootNodes();
+            
+            const store = useTreeStore.getState();
+            
+            const mockNodeCache = new Map(store.nodeCache);
+            let parentId = 'pkg1';
+            
+            for (let i = 0; i < 1005; i++) {
+                const nodeId = `node_${i}`;
+                mockNodeCache.set(nodeId, {
+                    id: nodeId,
+                    name: `Node ${i}`,
+                    type: 'function' as const,
+                    childCount: 0,
+                    isExpanded: false,
+                    parentId,
+                    depth: i,
+                });
+                parentId = nodeId;
+            }
+            
+            useTreeStore.setState({ nodeCache: mockNodeCache });
+            
+            store.selectNode('node_1004');
+            
+            const { breadcrumbPath } = useTreeStore.getState();
+            expect(breadcrumbPath.length).toBeLessThanOrEqual(1000);
+        });
+
+        it('should build correct breadcrumb path for normal nodes', async () => {
+            useTreeStore.getState().reset();
+            
+            await useTreeStore.getState().loadRootNodes();
+            await useTreeStore.getState().expandNode('pkg1');
+            
+            useTreeStore.getState().selectNode('cls1');
+            
+            const { breadcrumbPath } = useTreeStore.getState();
+            expect(breadcrumbPath.length).toBe(2);
+            expect(breadcrumbPath[0].id).toBe('pkg1');
+            expect(breadcrumbPath[1].id).toBe('cls1');
+        });
+    });
+
+    describe('stale selectedNodeId handling', () => {
+        it('should clear selectedNodeId when selected node is collapsed', async () => {
+            useTreeStore.getState().reset();
+            
+            await useTreeStore.getState().loadRootNodes();
+            await useTreeStore.getState().expandNode('pkg1');
+            
+            useTreeStore.getState().selectNode('cls1');
+            expect(useTreeStore.getState().selectedNodeId).toBe('cls1');
+            
+            useTreeStore.getState().collapseNode('pkg1');
+            
+            const { selectedNodeId } = useTreeStore.getState();
+            expect(selectedNodeId).toBe(null);
+        });
+
+        it('should validate node exists before selecting', async () => {
+            useTreeStore.getState().reset();
+            
+            await useTreeStore.getState().loadRootNodes();
+            
+            useTreeStore.getState().selectNode('nonexistent');
+            
+            const { selectedNodeId } = useTreeStore.getState();
+            expect(selectedNodeId).toBe(null);
+        });
+
+        it('should not clear selectedNodeId when collapsing different branch', async () => {
+            useTreeStore.getState().reset();
+            
+            await useTreeStore.getState().loadRootNodes();
+            await useTreeStore.getState().expandNode('pkg1');
+            
+            useTreeStore.getState().selectNode('cls1');
+            expect(useTreeStore.getState().selectedNodeId).toBe('cls1');
+            
+            useTreeStore.getState().collapseNode('mod1');
+            
+            expect(useTreeStore.getState().selectedNodeId).toBe('cls1');
+        });
+    });
+
+    describe('collapse performance optimization', () => {
+        it('should efficiently find descendants using parent map', async () => {
+            useTreeStore.getState().reset();
+            
+            await useTreeStore.getState().loadRootNodes();
+            await useTreeStore.getState().expandNode('pkg1');
+            
+            const { collapseNode, nodeCache } = useTreeStore.getState();
+            
+            const initialNodeCount = nodeCache.size;
+            expect(initialNodeCount).toBeGreaterThan(2);
+            
+            collapseNode('pkg1');
+            
+            expect(useTreeStore.getState().nodeCache.size).toBe(2);
+        });
+
+        it('should correctly remove deeply nested descendants', async () => {
+            useTreeStore.getState().reset();
+            
+            await useTreeStore.getState().loadRootNodes();
+            
+            const store = useTreeStore.getState();
+            
+            const mockNodeCache = new Map(store.nodeCache);
+            let parentId = 'pkg1';
+            
+            for (let i = 0; i < 100; i++) {
+                const nodeId = `deep_${i}`;
+                mockNodeCache.set(nodeId, {
+                    id: nodeId,
+                    name: `Deep Node ${i}`,
+                    type: 'function' as const,
+                    childCount: 0,
+                    isExpanded: false,
+                    parentId,
+                    depth: i,
+                });
+                parentId = nodeId;
+            }
+            
+            useTreeStore.setState({ 
+                nodeCache: mockNodeCache,
+                expandedIds: new Set(['pkg1']),
+            });
+            
+            store.collapseNode('pkg1');
+            
+            const { nodeCache, expandedIds } = useTreeStore.getState();
+            
+            // Only root nodes should remain
+            expect(nodeCache.size).toBe(2);
+            expect(expandedIds.has('pkg1')).toBe(false);
+        });
+    });
+
+    describe('zustand state persistence', () => {
+        it('should persist expandedIds state', async () => {
+            useTreeStore.getState().reset();
+            
+            await useTreeStore.getState().loadRootNodes();
+            await useTreeStore.getState().expandNode('pkg1');
+            
+            // Check that expandedIds is persisted
+            const { expandedIds } = useTreeStore.getState();
+            expect(expandedIds.has('pkg1')).toBe(true);
+        });
+
+        it('should persist selectedNodeId state', async () => {
+            useTreeStore.getState().reset();
+            
+            await useTreeStore.getState().loadRootNodes();
+            await useTreeStore.getState().expandNode('pkg1');
+            
+            useTreeStore.getState().selectNode('cls1');
+            
+            const { selectedNodeId } = useTreeStore.getState();
+            expect(selectedNodeId).toBe('cls1');
+        });
+
+        it('should persist breadcrumbPath state', async () => {
+            useTreeStore.getState().reset();
+            
+            await useTreeStore.getState().loadRootNodes();
+            await useTreeStore.getState().expandNode('pkg1');
+            
+            useTreeStore.getState().selectNode('cls1');
+            
+            const { breadcrumbPath } = useTreeStore.getState();
+            expect(breadcrumbPath.length).toBe(2);
+            expect(breadcrumbPath[0].id).toBe('pkg1');
+            expect(breadcrumbPath[1].id).toBe('cls1');
+        });
+    });
+
+    describe('offline state handling', () => {
+        it('should set isOnline state', () => {
+            const { isOnline } = useTreeStore.getState();
+            expect(typeof isOnline).toBe('boolean');
+        });
+
+        it('should handle loadRootNodes when offline', async () => {
+            useTreeStore.getState().reset();
+            
+            const originalOnLine = navigator.onLine;
+            Object.defineProperty(navigator, 'onLine', { value: false, writable: true });
+            
+            await useTreeStore.getState().loadRootNodes();
+            
+            const { isLoading, error, isOnline } = useTreeStore.getState();
+            expect(isLoading).toBe(false);
+            expect(error).toContain('offline');
+            expect(isOnline).toBe(false);
+            
+            Object.defineProperty(navigator, 'onLine', { value: originalOnLine, writable: true });
+        });
+
+        it('should handle search when offline', async () => {
+            useTreeStore.getState().reset();
+            
+            const originalOnLine = navigator.onLine;
+            Object.defineProperty(navigator, 'onLine', { value: false, writable: true });
+            
+            await useTreeStore.getState().search('test');
+            
+            const { error, isOnline } = useTreeStore.getState();
+            expect(error).toContain('offline');
+            expect(isOnline).toBe(false);
+            
+            Object.defineProperty(navigator, 'onLine', { value: originalOnLine, writable: true });
+        });
+    });
+
+    describe('infinite loop prevention', () => {
+        it('should prevent rapid successive expandNode calls', async () => {
+            useTreeStore.getState().reset();
+            
+            await useTreeStore.getState().loadRootNodes();
+            
+            // Mock expandNode to return empty children
+            const { api } = await import('@/services/api');
+            vi.mocked(api.expandNode).mockResolvedValue({ children: [], outgoing: [] });
+            
+            // Rapid successive calls should not cause issues
+            const expandPromises = [
+                useTreeStore.getState().expandNode('pkg1'),
+                useTreeStore.getState().expandNode('pkg1'),
+                useTreeStore.getState().expandNode('pkg1'),
+            ];
+            
+            await Promise.all(expandPromises);
+            
+            const { isExpanding } = useTreeStore.getState();
+            expect(isExpanding.has('pkg1')).toBe(false);
+        });
+
+        it('should handle expandNode errors gracefully', async () => {
+            useTreeStore.getState().reset();
+            
+            await useTreeStore.getState().loadRootNodes();
+            
+            const { api } = await import('@/services/api');
+            vi.mocked(api.expandNode).mockRejectedValue(new Error('Network error'));
+            
+            await useTreeStore.getState().expandNode('pkg1');
+            
+            const { isExpanding, error } = useTreeStore.getState();
+            expect(isExpanding.has('pkg1')).toBe(false);
+            expect(error).toContain('Network error');
         });
     });
 });

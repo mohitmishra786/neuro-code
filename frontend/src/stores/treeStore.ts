@@ -6,6 +6,7 @@
  */
 
 import { create } from 'zustand';
+import { persist, createJSONStorage } from 'zustand/middleware';
 import { Node, Edge, NodeChange, EdgeChange, applyNodeChanges, applyEdgeChanges } from 'reactflow';
 import { api } from '@/services/api';
 import { cache } from '@/services/cache';
@@ -57,10 +58,52 @@ function setToArray<T>(set: ReadonlySet<T>): T[] {
     return Array.from(set);
 }
 
+// Build parent-to-children mapping for efficient descendant lookups
+function buildParentMap(nodeCache: ReadonlyMap<string, TreeNode>): Map<string, string[]> {
+    const parentMap = new Map<string, string[]>();
+    for (const [, node] of nodeCache) {
+        if (node.parentId) {
+            const children = parentMap.get(node.parentId) ?? [];
+            children.push(node.id);
+            parentMap.set(node.parentId, children);
+        }
+    }
+    return parentMap;
+}
+
+// Find all descendants using parent-to-children mapping (O(D) instead of O(D*C))
+function findDescendants(nodeId: string, parentMap: Map<string, string[]>): Set<string> {
+    const descendants = new Set<string>();
+    const queue = [nodeId];
+    
+    while (queue.length > 0) {
+        const currentId = queue.shift()!;
+        const children = parentMap.get(currentId) ?? [];
+        
+        for (const childId of children) {
+            if (!descendants.has(childId)) {
+                descendants.add(childId);
+                queue.push(childId);
+            }
+        }
+    }
+    
+    return descendants;
+}
+
 // Convert array to Set
 function arrayToSet<T>(array: readonly T[] | undefined): Set<T> {
     return new Set(array ?? []);
 }
+
+// Expansion attempt tracking for infinite loop prevention
+const expansionAttempts = new Map<string, number>();
+const MAX_EXPANSION_ATTEMPTS = 3;
+const EXPANSION_COOLDOWN_MS = 5000;
+
+// Search request tracking for race condition prevention
+let searchRequestId = 0;
+let currentSearchId = 0;
 
 // Node colors by type
 export const NODE_COLORS: Record<NodeType, string> = {
@@ -94,6 +137,9 @@ interface TreeState {
     isLoading: boolean;
     isExpanding: ReadonlySet<string>;
     error: string | null;
+
+    // Network state
+    isOnline: boolean;
 
     // Search
     searchQuery: string;
@@ -130,6 +176,17 @@ function toTreeNode(node: GraphNode, parentId?: string, depth: number = 0): Tree
         parentId,
         depth,
     };
+}
+
+// Unique ID generator for cases where backend may return duplicates
+let idCounter = 0;
+function generateUniqueId(baseId: string): string {
+    return `${baseId}_${++idCounter}`;
+}
+
+// Check if ID already exists in cache
+function isIdUnique(id: string, nodeCache: ReadonlyMap<string, TreeNode>): boolean {
+    return !nodeCache.has(id);
 }
 
 // Convert TreeNode to ReactFlow Node
@@ -189,9 +246,20 @@ export const useTreeStore = create<TreeState>((set, get) => ({
     error: null,
     searchQuery: '',
     searchResults: [],
+    isOnline: typeof navigator !== 'undefined' ? navigator.onLine : true,
 
     loadRootNodes: async () => {
-        set({ isLoading: true, error: null });
+        // Check online status before making network requests
+        if (typeof navigator !== 'undefined' && !navigator.onLine) {
+            set({ 
+                isLoading: false, 
+                error: 'You are offline. Some features may be unavailable.',
+                isOnline: false,
+            });
+            return;
+        }
+
+        set({ isLoading: true, error: null, isOnline: true });
         
         try {
             // Initialize cache
@@ -210,15 +278,33 @@ export const useTreeStore = create<TreeState>((set, get) => ({
             
             const newNodeCache = new Map<string, TreeNode>();
             const nodes: Node[] = [];
+            const seenIds = new Set<string>();
+            const duplicateIds: string[] = [];
             
             rootNodes.forEach((node, index) => {
-                const treeNode = toTreeNode(node, undefined, 0);
+                let nodeId = node.id;
+                
+                // Check for duplicate ID
+                if (!isIdUnique(nodeId, newNodeCache)) {
+                    if (!seenIds.has(nodeId)) {
+                        duplicateIds.push(nodeId);
+                    }
+                    nodeId = generateUniqueId(node.id);
+                }
+                
+                const treeNode = toTreeNode({ ...node, id: nodeId }, undefined, 0);
                 // Initial grid layout for root nodes
                 treeNode.x = (index % 4) * 200;
                 treeNode.y = Math.floor(index / 4) * 150;
-                newNodeCache.set(node.id, treeNode);
+                newNodeCache.set(nodeId, treeNode);
                 nodes.push(toReactFlowNode(treeNode, false, false));
+                seenIds.add(nodeId);
             });
+            
+            // Log duplicates for debugging
+            if (duplicateIds.length > 0) {
+                console.warn('[TreeStore] Duplicate root node IDs detected and fixed:', duplicateIds);
+            }
             
             set({
                 nodeCache: newNodeCache,
@@ -235,10 +321,37 @@ export const useTreeStore = create<TreeState>((set, get) => ({
     },
 
     expandNode: async (nodeId: string) => {
-        const { nodeCache, expandedIds, isExpanding, selectedNodeId } = get();
+        const { nodeCache, expandedIds, isExpanding, isOnline } = get();
+        
+        // Prevent infinite expansion loops
+        const now = Date.now();
+        const lastAttempt = expansionAttempts.get(nodeId) ?? 0;
+        if (now - lastAttempt < EXPANSION_COOLDOWN_MS) {
+            const attempts = expansionAttempts.get(nodeId) ?? 0;
+            if (attempts >= MAX_EXPANSION_ATTEMPTS) {
+                console.warn(`[TreeStore] Expansion blocked for ${nodeId} - too many attempts`);
+                return;
+            }
+        }
+        expansionAttempts.set(nodeId, (expansionAttempts.get(nodeId) ?? 0) + 1);
         
         if (expandedIds.has(nodeId) || isExpanding.has(nodeId)) {
             return;
+        }
+        
+        // Check online status before making network requests
+        if (typeof navigator !== 'undefined' && !navigator.onLine) {
+            const cachedChildren = await cache.getChildren(nodeId);
+            if (cachedChildren && cachedChildren.length > 0) {
+                set({ isOnline: false, error: 'You are offline. Using cached data.' });
+            } else {
+                set({ 
+                    isOnline: false, 
+                    error: 'You are offline and this data is not cached.',
+                    isExpanding: new Set([...isExpanding].filter(id => id !== nodeId)),
+                });
+                return;
+            }
         }
         
         // Mark as expanding
@@ -279,19 +392,40 @@ export const useTreeStore = create<TreeState>((set, get) => ({
             const newNodes: Node[] = [];
             const newEdges: Edge[] = [];
             
+            // Track seen IDs to detect duplicates
+            const seenIds = new Set<string>();
+            const duplicateIds: string[] = [];
+
             // Add children
             result.children.forEach((child, index) => {
-                const treeNode = toTreeNode(child, nodeId, parentDepth + 1);
+                let nodeId = child.id;
+                
+                // Check for duplicate ID
+                if (!isIdUnique(nodeId, newNodeCache)) {
+                    if (!seenIds.has(nodeId)) {
+                        duplicateIds.push(nodeId);
+                    }
+                    // Generate unique ID
+                    nodeId = generateUniqueId(child.id);
+                }
+                
+                const treeNode = toTreeNode({ ...child, id: nodeId }, nodeId, parentDepth + 1);
                 // Position below parent
                 const parentX = parentNode?.x ?? 0;
                 const parentY = parentNode?.y ?? 0;
                 treeNode.x = parentX + (index - result.children.length / 2) * 150;
                 treeNode.y = parentY + 120;
                 
-                newNodeCache.set(child.id, treeNode);
-                newNodes.push(toReactFlowNode(treeNode, false, child.id === selectedNodeId));
-                newEdges.push(createEdge(nodeId, child.id, 'contains'));
+                newNodeCache.set(nodeId, treeNode);
+                newNodes.push(toReactFlowNode(treeNode, false, nodeId === selectedNodeId));
+                newEdges.push(createEdge(nodeId, nodeId, 'contains'));
+                seenIds.add(nodeId);
             });
+            
+            // Log duplicates for debugging
+            if (duplicateIds.length > 0) {
+                console.warn('[TreeStore] Duplicate node IDs detected and fixed:', duplicateIds);
+            }
             
             // Add outgoing connections (calls, imports, inherits)
             result.outgoing.forEach((connection) => {
@@ -319,25 +453,17 @@ export const useTreeStore = create<TreeState>((set, get) => ({
     },
 
     collapseNode: (nodeId: string) => {
-        const { expandedIds, nodeCache } = get();
+        const { expandedIds, nodeCache, selectedNodeId } = get();
         
         if (!expandedIds.has(nodeId)) {
             return;
         }
         
-        // Find all descendants to remove
-        const descendantIds = new Set<string>();
-        const queue = [nodeId];
+        // Build parent-to-children mapping for efficient descendant lookup
+        const parentMap = buildParentMap(nodeCache);
         
-        while (queue.length > 0) {
-            const currentId = queue.shift()!;
-            for (const [id, node] of nodeCache) {
-                if (node.parentId === currentId && id !== nodeId) {
-                    descendantIds.add(id);
-                    queue.push(id);
-                }
-            }
-        }
+        // Find descendants using efficient O(D) algorithm
+        const descendantIds = findDescendants(nodeId, parentMap);
         
         // Remove descendants from cache and nodes
         const newNodeCache = new Map(nodeCache);
@@ -347,11 +473,15 @@ export const useTreeStore = create<TreeState>((set, get) => ({
         newExpandedIds.delete(nodeId);
         descendantIds.forEach(id => newExpandedIds.delete(id));
         
+        // Clear selectedNodeId if the selected node is being removed
+        const shouldClearSelection = selectedNodeId !== null && descendantIds.has(selectedNodeId);
+        
         set(state => ({
             nodeCache: newNodeCache,
             nodes: state.nodes.filter(n => !descendantIds.has(n.id)),
             edges: state.edges.filter(e => !descendantIds.has(e.target) && !descendantIds.has(e.source)),
             expandedIds: newExpandedIds,
+            selectedNodeId: shouldClearSelection ? null : state.selectedNodeId,
         }));
     },
 
@@ -367,6 +497,13 @@ export const useTreeStore = create<TreeState>((set, get) => ({
     selectNode: (nodeId: string | null) => {
         const { nodeCache } = get();
         
+        // Validate that the node exists if not null
+        if (nodeId !== null && !nodeCache.has(nodeId)) {
+            console.warn('[TreeStore] Attempted to select non-existent node:', nodeId);
+            set({ selectedNodeId: null });
+            return;
+        }
+        
         // Update node selection state
         const updatedNodes = get().nodes.map(node => ({
             ...node,
@@ -376,13 +513,30 @@ export const useTreeStore = create<TreeState>((set, get) => ({
             },
         }));
         
-        // Build breadcrumb path
+        // Build breadcrumb path - with safety checks
         const breadcrumbPath: TreeNode[] = [];
         if (nodeId) {
+            const visitedIds = new Set<string>();
             let currentNode = nodeCache.get(nodeId);
+            
             while (currentNode) {
+                // Prevent infinite loops from circular references
+                if (visitedIds.has(currentNode.id)) {
+                    console.warn('[TreeStore] Circular reference detected in breadcrumb path');
+                    break;
+                }
+                visitedIds.add(currentNode.id);
+                
                 breadcrumbPath.unshift(currentNode);
-                currentNode = currentNode.parentId ? nodeCache.get(currentNode.parentId) : undefined;
+                
+                // Safety check for deeply nested paths
+                if (breadcrumbPath.length > 1000) {
+                    console.warn('[TreeStore] Breadcrumb path exceeds maximum depth');
+                    break;
+                }
+                
+                if (!currentNode.parentId) break;
+                currentNode = nodeCache.get(currentNode.parentId);
             }
         }
         
@@ -454,8 +608,22 @@ export const useTreeStore = create<TreeState>((set, get) => ({
     },
 
     search: async (query: string) => {
+        const currentRequestId = ++searchRequestId;
+        
         if (!query.trim()) {
-            set({ searchResults: [], searchQuery: '' });
+            // Only clear if this is the latest request
+            if (currentRequestId === searchRequestId) {
+                set({ searchResults: [], searchQuery: '' });
+            }
+            return;
+        }
+        
+        // Check online status for search requests
+        if (typeof navigator !== 'undefined' && !navigator.onLine) {
+            set({ 
+                searchQuery: query,
+                error: 'You are offline. Search results may be outdated.',
+            });
             return;
         }
         
@@ -463,6 +631,12 @@ export const useTreeStore = create<TreeState>((set, get) => ({
         
         try {
             const response = await api.search(query);
+            
+            // Only update if this is still the latest request
+            if (currentRequestId !== searchRequestId) {
+                return;
+            }
+            
             // Convert SearchResult to GraphNode by adding missing fields
             const results: GraphNode[] = response.results.map(r => ({
                 ...r,
@@ -471,6 +645,11 @@ export const useTreeStore = create<TreeState>((set, get) => ({
             }));
             set({ searchResults: results });
         } catch (error) {
+            // Only handle error if this is still the latest request
+            if (currentRequestId !== searchRequestId) {
+                return;
+            }
+            
             console.error('Search failed:', error);
             set({ searchResults: [] });
         }
@@ -478,6 +657,11 @@ export const useTreeStore = create<TreeState>((set, get) => ({
 
     navigateToSearchResult: async (nodeId: string) => {
         const { focusNode } = get();
+        
+        // Cancel any pending search navigation by incrementing the search ID
+        ++currentSearchId;
+        ++searchRequestId;
+        
         await focusNode(nodeId);
         set({ searchQuery: '', searchResults: [] });
     },
@@ -509,6 +693,49 @@ export const useTreeStore = create<TreeState>((set, get) => ({
             searchResults: [],
         });
     },
+}), {
+    name: 'neurocode-tree-store',
+    storage: createJSONStorage(() => localStorage),
+    partialize: (state) => ({
+        expandedIds: Array.from(state.expandedIds),
+        selectedNodeId: state.selectedNodeId,
+        breadcrumbPath: state.breadcrumbPath.map(node => ({
+            id: node.id,
+            name: node.name,
+            type: node.type,
+            qualifiedName: node.qualifiedName,
+            parentId: node.parentId,
+            depth: node.depth,
+            childCount: node.childCount,
+            isExpanded: node.isExpanded,
+        })),
+    }),
+    merge: (persisted: Partial<TreeState> | undefined, current: TreeState): TreeState => {
+        const merged = { ...current, ...persisted };
+        
+        // Restore expandedIds from array
+        if (persisted?.expandedIds && Array.isArray(persisted.expandedIds)) {
+            merged.expandedIds = new Set(persisted.expandedIds);
+        }
+        
+        // Restore breadcrumbPath
+        if (persisted?.breadcrumbPath && Array.isArray(persisted.breadcrumbPath)) {
+            merged.breadcrumbPath = persisted.breadcrumbPath;
+        }
+        
+        return merged;
+    },
 }));
+
+// Online/offline event listeners
+if (typeof window !== 'undefined') {
+    window.addEventListener('online', () => {
+        useTreeStore.setState({ isOnline: true, error: null });
+    });
+    
+    window.addEventListener('offline', () => {
+        useTreeStore.setState({ isOnline: false, error: 'You have gone offline. Changes will be synced when connection is restored.' });
+    });
+}
 
 export default useTreeStore;

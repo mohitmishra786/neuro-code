@@ -5,7 +5,7 @@
  * Supports lazy loading, circle nodes, and hierarchical tree layout.
  */
 
-import { useEffect, useCallback, useMemo } from 'react';
+import { useEffect, useCallback, useMemo, useRef } from 'react';
 import ReactFlow, {
     Background,
     Controls,
@@ -17,6 +17,11 @@ import ReactFlow, {
     BackgroundVariant,
     Node,
     Edge,
+    Position,
+    NodeChange,
+    EdgeChange,
+    applyNodeChanges,
+    applyEdgeChanges,
 } from 'reactflow';
 import dagre from 'dagre';
 import 'reactflow/dist/style.css';
@@ -25,7 +30,7 @@ import { CircleNode } from '@/components/nodes/CircleNode';
 import { TypedEdge } from '@/components/edges/TypedEdge';
 import { useTreeStore, NODE_COLORS } from '@/stores/treeStore';
 import { useThemeStore } from '@/stores/themeStore';
-import { NodeType, isValidNodeType } from '@/types/graph.types';
+import { isValidNodeType } from '@/types/graph.types';
 import { ErrorBoundary } from '@/components/ErrorBoundary';
 
 // Register custom node types
@@ -45,13 +50,8 @@ dagreGraph.setDefaultEdgeLabel(() => ({}));
 const NODE_WIDTH = 120;
 const NODE_HEIGHT = 100;
 
-interface LayoutedNode extends Node {
-    targetPosition?: 'left' | 'right' | 'top' | 'bottom';
-    sourcePosition?: 'left' | 'right' | 'top' | 'bottom';
-}
-
 interface LayoutedElements {
-    nodes: LayoutedNode[];
+    nodes: Node[];
     edges: Edge[];
 }
 
@@ -75,7 +75,7 @@ function getLayoutedElements(nodes: Node[], edges: Edge[], direction = 'TB'): La
 
     dagre.layout(dagreGraph);
 
-    const layoutedNodes: LayoutedNode[] = [];
+    const layoutedNodes: Node[] = [];
 
     for (const node of nodes) {
         const nodeWithPosition = dagreGraph.node(node.id);
@@ -86,8 +86,8 @@ function getLayoutedElements(nodes: Node[], edges: Edge[], direction = 'TB'): La
 
         layoutedNodes.push({
             ...node,
-            targetPosition: isHorizontal ? 'left' : 'top',
-            sourcePosition: isHorizontal ? 'right' : 'bottom',
+            targetPosition: isHorizontal ? Position.Left : Position.Top,
+            sourcePosition: isHorizontal ? Position.Right : Position.Bottom,
             position: {
                 x: nodeWithPosition.x - NODE_WIDTH / 2,
                 y: nodeWithPosition.y - NODE_HEIGHT / 2,
@@ -126,27 +126,59 @@ function TreeGraphInner() {
         return getLayoutedElements(nodes, edges);
     }, [nodes, edges]);
     
-    // Fit view when layout changes
+    // Fit view when layout changes - with proper cleanup to prevent race conditions
+    const fitViewTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+    
     useEffect(() => {
         if (layoutedElements.nodes.length > 0) {
-            setTimeout(() => {
+            // Cancel any pending fitView call
+            if (fitViewTimeoutRef.current) {
+                clearTimeout(fitViewTimeoutRef.current);
+            }
+            
+            fitViewTimeoutRef.current = setTimeout(() => {
                 fitView({ padding: 0.2, duration: 300 });
+                fitViewTimeoutRef.current = null;
             }, 50);
         }
+        
+        return () => {
+            if (fitViewTimeoutRef.current) {
+                clearTimeout(fitViewTimeoutRef.current);
+                fitViewTimeoutRef.current = null;
+            }
+        };
     }, [layoutedElements.nodes.length, fitView]);
     
-    // Center on selected node
+    // Center on selected node - with proper cleanup to prevent race conditions
+    const setCenterTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+    
     useEffect(() => {
         if (selectedNodeId) {
             const selectedNode = layoutedElements.nodes.find(n => n.id === selectedNodeId);
             if (selectedNode) {
-                setCenter(
-                    selectedNode.position.x + NODE_WIDTH / 2,
-                    selectedNode.position.y + NODE_HEIGHT / 2,
-                    { duration: 300, zoom: 1 }
-                );
+                // Cancel any pending setCenter call
+                if (setCenterTimeoutRef.current) {
+                    clearTimeout(setCenterTimeoutRef.current);
+                }
+                
+                setCenterTimeoutRef.current = setTimeout(() => {
+                    setCenter(
+                        selectedNode.position.x + NODE_WIDTH / 2,
+                        selectedNode.position.y + NODE_HEIGHT / 2,
+                        { duration: 300, zoom: 1 }
+                    );
+                    setCenterTimeoutRef.current = null;
+                }, 50);
             }
         }
+        
+        return () => {
+            if (setCenterTimeoutRef.current) {
+                clearTimeout(setCenterTimeoutRef.current);
+                setCenterTimeoutRef.current = null;
+            }
+        };
     }, [selectedNodeId, layoutedElements.nodes, setCenter]);
     
     // Handle node click

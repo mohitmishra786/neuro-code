@@ -13,16 +13,31 @@ export function SearchBar() {
     const setSearchQuery = useTreeStore((state) => state.setSearchQuery);
     const navigateToSearchResult = useTreeStore((state) => state.navigateToSearchResult);
     const inputRef = useRef<HTMLInputElement>(null);
+    const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
     const handleSearch = useCallback(
         (value: string) => {
-            search(value);
+            setSearchQuery(value);
+            
+            if (debounceRef.current) {
+                clearTimeout(debounceRef.current);
+            }
+            
+            debounceRef.current = setTimeout(() => {
+                search(value);
+                debounceRef.current = null;
+            }, 300);
         },
-        [search],
+        [search, setSearchQuery],
     );
 
     const handleResultClick = useCallback(
         async (nodeId: string) => {
+            if (debounceRef.current) {
+                clearTimeout(debounceRef.current);
+                debounceRef.current = null;
+            }
+            
             await navigateToSearchResult(nodeId);
             setIsFocused(false);
         },
@@ -30,9 +45,22 @@ export function SearchBar() {
     );
 
     const handleClear = useCallback(() => {
+        if (debounceRef.current) {
+            clearTimeout(debounceRef.current);
+            debounceRef.current = null;
+        }
+        
         setSearchQuery('');
         search('');
     }, [setSearchQuery, search]);
+
+    useEffect(() => {
+        return () => {
+            if (debounceRef.current) {
+                clearTimeout(debounceRef.current);
+            }
+        };
+    }, []);
 
     // Keyboard shortcut
     useEffect(() => {
@@ -84,7 +112,7 @@ export function SearchBar() {
                 )}
             </div>
 
-            {isFocused && searchResults.length > 0 && (
+            {isFocused && searchQuery && searchResults.length > 0 && (
                 <div className="search-results">
                     {searchResults.slice(0, 10).map((result) => (
                         <button

@@ -12,11 +12,14 @@ import {
     isValidChildrenResponse,
     isValidAncestorsResponse,
     isValidSearchResult,
+    isValidEdgeType,
     parseApiNode,
     parseSearchResponse,
     parseRootNodesResponse,
+    RELATIONSHIP_TYPE_VALUES,
+    EDGE_TYPE_VALUES,
 } from '../graph.types';
-import { ApiNode, SearchResponse, RootNodesResponse } from '../graph.types';
+import { ApiNode, SearchResponse, RootNodesResponse, RelationshipType, EdgeType } from '../graph.types';
 
 describe('isValidNodeType', () => {
     it('should return true for valid node types', () => {
@@ -254,5 +257,29 @@ describe('parseRootNodesResponse', () => {
     it('should return null for invalid input', () => {
         expect(parseRootNodesResponse(null)).toBeNull();
         expect(parseRootNodesResponse({ nodes: 'invalid' })).toBeNull();
+    });
+});
+
+describe('RELATIONSHIP_TYPE_VALUES', () => {
+    it('should contain all valid relationship types', () => {
+        expect(RELATIONSHIP_TYPE_VALUES).toContain('CONTAINS');
+        expect(RELATIONSHIP_TYPE_VALUES).toContain('IMPORTS');
+        expect(RELATIONSHIP_TYPE_VALUES).toContain('CALLS');
+        expect(RELATIONSHIP_TYPE_VALUES).toContain('INSTANTIATES');
+        expect(RELATIONSHIP_TYPE_VALUES).toContain('INHERITS');
+        expect(RELATIONSHIP_TYPE_VALUES).toContain('DECORATES');
+        expect(RELATIONSHIP_TYPE_VALUES).toContain('DEFINES');
+        expect(RELATIONSHIP_TYPE_VALUES).toContain('USES');
+        expect(RELATIONSHIP_TYPE_VALUES.length).toBe(8);
+    });
+});
+
+describe('EDGE_TYPE_VALUES', () => {
+    it('should contain all valid edge types', () => {
+        expect(EDGE_TYPE_VALUES).toContain('contains');
+        expect(EDGE_TYPE_VALUES).toContain('calls');
+        expect(EDGE_TYPE_VALUES).toContain('imports');
+        expect(EDGE_TYPE_VALUES).toContain('inherits');
+        expect(EDGE_TYPE_VALUES.length).toBe(4);
     });
 });

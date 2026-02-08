@@ -45,6 +45,7 @@ export function useWebSocket(options: UseWebSocketOptions = {}) {
     const wsRef = useRef<WebSocket | null>(null);
     const reconnectCountRef = useRef(0);
     const reconnectTimeoutRef = useRef<number | null>(null);
+    const connectionAttemptRef = useRef(0);
 
     const [state, setState] = useState<WebSocketState>({
         isConnected: false,
@@ -56,6 +57,9 @@ export function useWebSocket(options: UseWebSocketOptions = {}) {
     const reset = useTreeStore((s) => s.reset);
 
     const connect = useCallback(() => {
+        connectionAttemptRef.current += 1;
+        const attempt = connectionAttemptRef.current;
+
         if (wsRef.current?.readyState === WebSocket.OPEN) {
             return;
         }
@@ -64,6 +68,12 @@ export function useWebSocket(options: UseWebSocketOptions = {}) {
             const ws = new WebSocket(url);
 
             ws.onopen = () => {
+                // Only process if this is still the latest connection attempt
+                if (attempt !== connectionAttemptRef.current) {
+                    ws.close();
+                    return;
+                }
+                
                 setState((prev) => ({ ...prev, isConnected: true, error: null }));
                 reconnectCountRef.current = 0;
                 console.log('[WebSocket] Connected');
@@ -74,7 +84,6 @@ export function useWebSocket(options: UseWebSocketOptions = {}) {
                     const data: WebSocketMessage = JSON.parse(event.data);
                     setState((prev) => ({ ...prev, lastMessage: data }));
 
-                    // Handle specific message types
                     switch (data.type) {
                         case 'graph_updated':
                         case 'file_changed':
@@ -106,6 +115,12 @@ export function useWebSocket(options: UseWebSocketOptions = {}) {
             };
 
             ws.onclose = () => {
+                // Only update state if this is still the latest connection attempt
+                if (attempt !== connectionAttemptRef.current) {
+                    wsRef.current = null;
+                    return;
+                }
+                
                 setState((prev) => ({ ...prev, isConnected: false }));
                 wsRef.current = null;
                 console.log('[WebSocket] Disconnected');

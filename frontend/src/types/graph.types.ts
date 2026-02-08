@@ -24,6 +24,17 @@ export type RelationshipType =
     | 'DEFINES'
     | 'USES';
 
+export const RELATIONSHIP_TYPE_VALUES = [
+    'CONTAINS',
+    'IMPORTS',
+    'CALLS',
+    'INSTANTIATES',
+    'INHERITS',
+    'DECORATES',
+    'DEFINES',
+    'USES',
+] as const satisfies ReadonlyArray<RelationshipType>;
+
 export interface GraphNode {
     id: string;
     name: string;
@@ -56,18 +67,6 @@ export interface GraphEdge {
     callCount?: number;
 }
 
-// Edge type validation
-const RELATIONSHIP_TYPE_VALUES = [
-    'CONTAINS',
-    'IMPORTS',
-    'CALLS',
-    'INSTANTIATES',
-    'INHERITS',
-    'DECORATES',
-    'DEFINES',
-    'USES',
-] as const;
-
 export function isValidRelationshipType(value: unknown): value is RelationshipType {
     return (
         typeof value === 'string' &&
@@ -77,7 +76,7 @@ export function isValidRelationshipType(value: unknown): value is RelationshipTy
 
 export type EdgeType = 'contains' | 'calls' | 'imports' | 'inherits';
 
-const EDGE_TYPE_VALUES = ['contains', 'calls', 'imports', 'inherits'] as const;
+export const EDGE_TYPE_VALUES = ['contains', 'calls', 'imports', 'inherits'] as const satisfies ReadonlyArray<EdgeType>;
 
 export function isValidEdgeType(value: unknown): value is EdgeType {
     return typeof value === 'string' && EDGE_TYPE_VALUES.includes(value as EdgeType);
@@ -195,10 +194,8 @@ export interface ProjectTreeNode {
     readonly children?: readonly ProjectTreeNode[];
 }
 
-// Validation helper types
-type StringOrUndefined = string | undefined;
-type NumberOrUndefined = number | undefined;
-type BooleanOrUndefined = boolean | undefined;
+// Validation helper types - REMOVED: StringOrUndefined, NumberOrUndefined, BooleanOrUndefined
+// These were unused helper types that added no value
 
 // Validation functions for runtime type checking
 export function isValidApiNode(value: unknown): value is ApiNode {
