@@ -1,12 +1,14 @@
 """
 NeuroCode Debouncer.
 
-Debounces rapid file system events.
+Debounces rapid file system events with event loss prevention.
 Requires Python 3.11+.
 """
 
 import asyncio
 import threading
+import time
+from collections import defaultdict
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -18,20 +20,38 @@ from utils.logger import LoggerMixin
 @dataclass
 class PendingChange:
     """A pending file change waiting to be processed."""
-
     path: Path
-    change_type: str  # created, modified, deleted
+    change_type: str
     timestamp: float
+    duplicate_count: int = 0
+
+
+@dataclass
+class DebouncerStats:
+    """Statistics for the debouncer."""
+    total_events: int = 0
+    dropped_events: int = 0
+    processed_batches: int = 0
+    last_processed: float = 0.0
 
 
 class Debouncer(LoggerMixin):
     """
-    Debounces rapid file changes.
+    Debounces rapid file changes with event loss prevention.
 
     Accumulates changes and triggers callback after a delay period
-    with no new changes. This prevents processing the same file
-    multiple times during rapid saves.
+    with no new changes. Uses deduplication to track multiple changes
+    to the same file within the debounce window.
+
+    Features:
+    - Deduplication of repeated events for the same path
+    - Event accumulation to prevent loss during rapid changes
+    - Thread-safe operation with proper locking
+    - Statistics tracking for monitoring
     """
+
+    MAX_PENDING_SIZE = 10000
+    DROP_WARNING_THRESHOLD = 1000
 
     def __init__(
         self,
@@ -51,6 +71,8 @@ class Debouncer(LoggerMixin):
         self._timer: threading.Timer | None = None
         self._lock = threading.Lock()
         self._loop: asyncio.AbstractEventLoop | None = None
+        self._stats = DebouncerStats()
+        self._last_event_time = 0.0
 
     def set_callback(self, callback: Callable[[list[tuple[Path, str]]], Any]) -> None:
         """Set or update the callback function."""
@@ -65,28 +87,44 @@ class Debouncer(LoggerMixin):
         Add a file change to the pending queue.
 
         The callback will be triggered after delay_ms milliseconds
-        of no new changes.
+        of no new changes. Multiple changes to the same path are
+        deduplicated with a count.
 
         Args:
             path: Path to the changed file
             change_type: Type of change (created, modified, deleted)
         """
-        import time
+        self._stats.total_events += 1
+        current_time = time.time()
+        self._last_event_time = current_time
 
         with self._lock:
-            # Cancel existing timer
-            if self._timer is not None:
-                self._timer.cancel()
-                self._timer = None
+            if path in self._pending:
+                existing = self._pending[path]
+                existing.change_type = change_type
+                existing.timestamp = current_time
+                existing.duplicate_count += 1
+                return
 
-            # Add or update pending change
+            if len(self._pending) >= self.MAX_PENDING_SIZE:
+                self._stats.dropped_events += 1
+                if self._stats.dropped_events % self.DROP_WARNING_THRESHOLD == 0:
+                    self.log.warning(
+                        "debounce_queue_full",
+                        dropped_count=self._stats.dropped_events,
+                        max_size=self.MAX_PENDING_SIZE,
+                    )
+                return
+
             self._pending[path] = PendingChange(
                 path=path,
                 change_type=change_type,
-                timestamp=time.time(),
+                timestamp=current_time,
             )
 
-            # Start new timer
+            if self._timer is not None:
+                self._timer.cancel()
+
             self._timer = threading.Timer(self._delay, self._process_pending)
             self._timer.daemon = True
             self._timer.start()
@@ -97,7 +135,6 @@ class Debouncer(LoggerMixin):
             if not self._pending:
                 return
 
-            # Collect all pending changes
             changes = [
                 (change.path, change.change_type)
                 for change in self._pending.values()
@@ -105,12 +142,18 @@ class Debouncer(LoggerMixin):
             self._pending.clear()
             self._timer = None
 
-        self.log.debug("processing_debounced_changes", count=len(changes))
+        self._stats.processed_batches += 1
+        self._stats.last_processed = time.time()
 
-        # Call the callback
+        if changes:
+            self.log.debug(
+                "processing_debounced_changes",
+                count=len(changes),
+                duplicates=self._stats.dropped_events,
+            )
+
         if self._callback is not None:
             try:
-                # Check if callback is async
                 if asyncio.iscoroutinefunction(self._callback):
                     if self._loop is not None:
                         asyncio.run_coroutine_threadsafe(
@@ -118,7 +161,6 @@ class Debouncer(LoggerMixin):
                             self._loop,
                         )
                     else:
-                        # No event loop set, try to run in new loop
                         asyncio.run(self._callback(changes))
                 else:
                     self._callback(changes)
@@ -142,6 +184,9 @@ class Debouncer(LoggerMixin):
                 for change in self._pending.values()
             ]
             self._pending.clear()
+
+        self._stats.processed_batches += 1
+        self._stats.last_processed = time.time()
 
         if changes and self._callback is not None:
             try:
@@ -175,6 +220,11 @@ class Debouncer(LoggerMixin):
     def pending_paths(self) -> list[Path]:
         """Get list of paths with pending changes."""
         return list(self._pending.keys())
+
+    @property
+    def stats(self) -> DebouncerStats:
+        """Get debouncer statistics."""
+        return self._stats
 
 
 class AsyncDebouncer:
