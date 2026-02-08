@@ -133,6 +133,9 @@ interface TreeState {
     isExpanding: ReadonlySet<string>;
     error: string | null;
 
+    // Network state
+    isOnline: boolean;
+
     // Search
     searchQuery: string;
     searchResults: readonly GraphNode[];
@@ -238,9 +241,20 @@ export const useTreeStore = create<TreeState>((set, get) => ({
     error: null,
     searchQuery: '',
     searchResults: [],
+    isOnline: typeof navigator !== 'undefined' ? navigator.onLine : true,
 
     loadRootNodes: async () => {
-        set({ isLoading: true, error: null });
+        // Check online status before making network requests
+        if (typeof navigator !== 'undefined' && !navigator.onLine) {
+            set({ 
+                isLoading: false, 
+                error: 'You are offline. Some features may be unavailable.',
+                isOnline: false,
+            });
+            return;
+        }
+
+        set({ isLoading: true, error: null, isOnline: true });
         
         try {
             // Initialize cache
@@ -572,6 +586,15 @@ export const useTreeStore = create<TreeState>((set, get) => ({
             return;
         }
         
+        // Check online status for search requests
+        if (typeof navigator !== 'undefined' && !navigator.onLine) {
+            set({ 
+                searchQuery: query,
+                error: 'You are offline. Search results may be outdated.',
+            });
+            return;
+        }
+        
         set({ searchQuery: query });
         
         try {
@@ -671,5 +694,16 @@ export const useTreeStore = create<TreeState>((set, get) => ({
         return merged;
     },
 }));
+
+// Online/offline event listeners
+if (typeof window !== 'undefined') {
+    window.addEventListener('online', () => {
+        useTreeStore.setState({ isOnline: true, error: null });
+    });
+    
+    window.addEventListener('offline', () => {
+        useTreeStore.setState({ isOnline: false, error: 'You have gone offline. Changes will be synced when connection is restored.' });
+    });
+}
 
 export default useTreeStore;

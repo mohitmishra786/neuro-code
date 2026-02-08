@@ -591,4 +591,42 @@ describe('useTreeStore', () => {
             expect(breadcrumbPath[1].id).toBe('cls1');
         });
     });
+
+    describe('offline state handling', () => {
+        it('should set isOnline state', () => {
+            const { isOnline } = useTreeStore.getState();
+            expect(typeof isOnline).toBe('boolean');
+        });
+
+        it('should handle loadRootNodes when offline', async () => {
+            useTreeStore.getState().reset();
+            
+            const originalOnLine = navigator.onLine;
+            Object.defineProperty(navigator, 'onLine', { value: false, writable: true });
+            
+            await useTreeStore.getState().loadRootNodes();
+            
+            const { isLoading, error, isOnline } = useTreeStore.getState();
+            expect(isLoading).toBe(false);
+            expect(error).toContain('offline');
+            expect(isOnline).toBe(false);
+            
+            Object.defineProperty(navigator, 'onLine', { value: originalOnLine, writable: true });
+        });
+
+        it('should handle search when offline', async () => {
+            useTreeStore.getState().reset();
+            
+            const originalOnLine = navigator.onLine;
+            Object.defineProperty(navigator, 'onLine', { value: false, writable: true });
+            
+            await useTreeStore.getState().search('test');
+            
+            const { error, isOnline } = useTreeStore.getState();
+            expect(error).toContain('offline');
+            expect(isOnline).toBe(false);
+            
+            Object.defineProperty(navigator, 'onLine', { value: originalOnLine, writable: true });
+        });
+    });
 });
