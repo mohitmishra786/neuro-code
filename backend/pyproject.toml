@@ -28,17 +28,17 @@ classifiers = [
 keywords = ["code-visualization", "ast", "graph", "neo4j", "tree-sitter"]
 
 dependencies = [
-    "fastapi>=0.109.0",
-    "uvicorn[standard]>=0.27.0",
-    "neo4j>=5.17.0",
-    "tree-sitter>=0.21.0",
-    "tree-sitter-python>=0.21.0",
-    "watchdog>=4.0.0",
-    "pydantic>=2.6.0",
-    "pydantic-settings>=2.1.0",
-    "structlog>=24.1.0",
-    "httpx>=0.26.0",
-    "websockets>=12.0",
+    "fastapi==0.109.2",
+    "uvicorn[standard]==0.27.1",
+    "neo4j==5.17.0",
+    "tree-sitter==0.21.3",
+    "tree-sitter-python==0.21.2",
+    "watchdog==4.0.0",
+    "pydantic==2.6.1",
+    "pydantic-settings==2.1.0",
+    "structlog==24.1.0",
+    "httpx==0.26.0",
+    "websockets==12.0",
 ]
 
 [project.optional-dependencies]
@@ -107,7 +107,6 @@ module = [
 ignore_missing_imports = true
 
 [tool.pytest.ini_options]
-minversion = "8.0"
 asyncio_mode = "auto"
 testpaths = ["tests"]
 python_files = ["test_*.py"]
@@ -117,8 +116,6 @@ addopts = [
     "-ra",
     "-q",
     "--strict-markers",
-    "--cov=.",
-    "--cov-report=term-missing",
 ]
 
 [tool.coverage.run]
