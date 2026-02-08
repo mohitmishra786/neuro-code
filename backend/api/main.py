@@ -13,6 +13,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from api.dependencies import set_neo4j_client, get_neo4j_client
+from api.middleware.request_id import RequestIDMiddleware
 from api.middleware.rate_limit import RateLimitMiddleware, rate_limit
 from graph_db.neo4j_client import Neo4jClient
 from utils.config import get_settings
@@ -85,6 +86,9 @@ def create_app() -> FastAPI:
         allow_methods=["*"],
         allow_headers=["*"],
     )
+
+    # Request ID middleware for distributed tracing
+    application.add_middleware(RequestIDMiddleware)
 
     # Rate limiting middleware (if enabled)
     if settings.api.rate_limit_enabled:
