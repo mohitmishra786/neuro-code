@@ -10,7 +10,10 @@ import { persist, createJSONStorage } from 'zustand/middleware';
 import { Node, Edge, NodeChange, EdgeChange, applyNodeChanges, applyEdgeChanges } from 'reactflow';
 import { api } from '@/services/api';
 import { cache } from '@/services/cache';
-import { GraphNode, NodeType, EdgeType, NODE_TYPE_CIRCLE } from '@/types/graph.types';
+import { GraphNode, EdgeType, NODE_TYPE_CIRCLE } from '@/types/graph.types';
+import { NODE_COLORS } from '@/constants/nodeColors';
+
+export { NODE_COLORS };
 
 // Tree node with visual properties
 export interface TreeNode extends GraphNode {
@@ -18,12 +21,6 @@ export interface TreeNode extends GraphNode {
     depth: number;
     x?: number;
     y?: number;
-}
-
-// Serializable node cache entry
-interface NodeCacheEntry {
-    node: TreeNode;
-    timestamp: number;
 }
 
 // Build parent-to-children mapping for efficient descendant lookups
@@ -68,15 +65,7 @@ const EXPANSION_COOLDOWN_MS = 5000;
 let searchRequestId = 0;
 let currentSearchId = 0;
 
-// Node colors by type
-export const NODE_COLORS: Record<NodeType, string> = {
-    package: '#6366f1',   // Indigo
-    module: '#8b5cf6',    // Purple
-    class: '#10b981',     // Emerald
-    function: '#f59e0b',  // Amber
-    variable: '#ec4899',  // Pink
-    unknown: '#64748b',   // Slate
-};
+// NODE_COLORS re-exported from @/constants/nodeColors (single source of truth)
 
 interface TreeState {
     /**
@@ -397,7 +386,7 @@ export const useTreeStore = create<TreeState>()(
     },
 
     expandNode: async (nodeId: string) => {
-        const { nodeCache, expandedIds, isExpanding, isOnline, selectedNodeId } = get();
+        const { nodeCache, expandedIds, isExpanding, selectedNodeId } = get();
 
         // Prevent infinite expansion loops
         const now = Date.now();
@@ -435,7 +424,7 @@ export const useTreeStore = create<TreeState>()(
         
         try {
             // Try to get cached children first
-            let cachedChildren = await cache.getChildren(nodeId);
+            const cachedChildren = await cache.getChildren(nodeId);
             let result: { children: GraphNode[]; outgoing: Array<{ id: string; edgeType: string }> };
             
             if (cachedChildren && cachedChildren.length > 0) {
@@ -669,13 +658,13 @@ export const useTreeStore = create<TreeState>()(
 
     onNodesChange: (changes: readonly NodeChange[]) => {
         set(state => ({
-            nodes: applyNodeChanges([...changes], state.nodes),
+            nodes: applyNodeChanges([...changes] as NodeChange[], [...state.nodes]),
         }));
     },
 
     onEdgesChange: (changes: readonly EdgeChange[]) => {
         set(state => ({
-            edges: applyEdgeChanges([...changes], state.edges),
+            edges: applyEdgeChanges([...changes] as EdgeChange[], [...state.edges]),
         }));
     },
 
@@ -786,14 +775,19 @@ export const useTreeStore = create<TreeState>()(
             isExpanded: node.isExpanded,
         })),
     }),
-    merge: (persisted: Partial<TreeState> | undefined, current: TreeState): TreeState => {
-        const merged = { ...current, ...persisted };
+    merge: (persistedState: unknown, current: TreeState): TreeState => {
+        const persisted = (persistedState ?? {}) as Partial<TreeState> & {
+            expandedIds?: string[] | Set<string>;
+        };
+        const merged: TreeState = { ...current, ...persisted };
 
-        if (persisted?.expandedIds && Array.isArray(persisted.expandedIds)) {
-            merged.expandedIds = new Set(persisted.expandedIds);
+        if (persisted.expandedIds) {
+            merged.expandedIds = Array.isArray(persisted.expandedIds)
+                ? new Set(persisted.expandedIds)
+                : persisted.expandedIds;
         }
 
-        if (persisted?.breadcrumbPath && Array.isArray(persisted.breadcrumbPath)) {
+        if (persisted.breadcrumbPath && Array.isArray(persisted.breadcrumbPath)) {
             merged.breadcrumbPath = persisted.breadcrumbPath;
         }
 

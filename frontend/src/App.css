@@ -26,7 +26,8 @@
   --color-error: #ef4444;
   --color-shadow: rgba(0, 0, 0, 0.5);
   --color-canvas-background: #050508;
-  --color-edge: rgba(148, 163, 184, 0.3);
+  /* Higher opacity for WCAG-friendlier edge visibility on dark canvas */
+  --color-edge: rgba(148, 163, 184, 0.55);
 
   /* Node colors */
   --node-package: #6366f1;
@@ -1290,4 +1291,172 @@ body {
 .control-btn:disabled {
   opacity: 0.5;
   cursor: not-allowed;
+}
+
+/* ===== Health / connection ===== */
+.error-banner.warning {
+  background: rgba(245, 158, 11, 0.15);
+  border-bottom: 1px solid rgba(245, 158, 11, 0.4);
+  color: var(--color-warning);
+}
+
+.error-banner code {
+  font-family: 'JetBrains Mono', 'Fira Code', monospace;
+  font-size: 12px;
+  padding: 2px 6px;
+  background: var(--color-surface);
+  border-radius: var(--radius-sm);
+}
+
+.connection-status {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--color-text-secondary);
+  padding: 4px 10px;
+  border-radius: var(--radius-full);
+  border: 1px solid var(--color-border);
+}
+
+.connection-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--color-text-muted);
+}
+
+.connection-status.connected .connection-dot {
+  background: var(--color-success);
+  box-shadow: 0 0 8px var(--color-success);
+}
+
+.connection-status.disconnected .connection-dot {
+  background: var(--color-text-muted);
+}
+
+/* ===== Empty state CTA ===== */
+.empty-cta {
+  margin-top: var(--space-lg);
+  max-width: 420px;
+  text-align: left;
+}
+
+.empty-cta-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--color-text-secondary);
+  margin-bottom: var(--space-sm);
+}
+
+.empty-cta-code {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  padding: var(--space-md);
+  font-family: 'JetBrains Mono', 'Fira Code', monospace;
+  font-size: 12px;
+  color: var(--color-text);
+  overflow-x: auto;
+  white-space: pre-wrap;
+  line-height: 1.5;
+}
+
+.empty-cta-hint {
+  margin-top: var(--space-md);
+  font-size: 13px;
+  color: var(--color-text-muted);
+}
+
+.empty-cta-link {
+  display: inline-block;
+  margin-top: var(--space-sm);
+  color: var(--color-accent-hover);
+  font-size: 13px;
+  font-weight: 500;
+  text-decoration: none;
+}
+
+.empty-cta-link:hover {
+  text-decoration: underline;
+}
+
+/* ===== Graph legend ===== */
+.graph-container {
+  position: relative;
+}
+
+.graph-legend {
+  position: absolute;
+  bottom: 16px;
+  right: 16px;
+  z-index: 10;
+  min-width: 160px;
+  max-width: 220px;
+  padding: var(--space-md);
+  background: var(--color-surface-glass);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-md);
+  pointer-events: none;
+}
+
+.graph-legend-title {
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--color-text-secondary);
+  margin: 0 0 var(--space-sm) 0;
+}
+
+.graph-legend-subtitle {
+  display: block;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--color-text-muted);
+  margin-bottom: 4px;
+}
+
+.graph-legend-section + .graph-legend-section {
+  margin-top: var(--space-sm);
+}
+
+.graph-legend-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.graph-legend-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--color-text-secondary);
+  margin-bottom: 4px;
+}
+
+.graph-legend-swatch {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.graph-legend-edge {
+  width: 18px;
+  height: 0;
+  border-top-width: 2px;
+  border-top-style: solid;
+  flex-shrink: 0;
+}
+
+.graph-legend-hint {
+  margin: var(--space-sm) 0 0 0;
+  font-size: 11px;
+  color: var(--color-text-muted);
+  line-height: 1.4;
 }

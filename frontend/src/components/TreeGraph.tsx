@@ -230,9 +230,33 @@ function TreeGraphInner() {
     if (nodes.length === 0) {
         return (
             <div className="tree-graph-empty">
-                <div className="empty-icon">🌳</div>
+                <div className="empty-icon" aria-hidden>
+                    🌳
+                </div>
                 <h3>No Code Structure</h3>
-                <p>Parse a Python codebase to visualize its structure.</p>
+                <p>
+                    Parse a Python codebase to visualize its architecture as a hierarchical
+                    knowledge graph.
+                </p>
+                <div className="empty-cta">
+                    <p className="empty-cta-label">Fastest path (from repo root):</p>
+                    <pre className="empty-cta-code">
+                        {`make demo
+# or:
+# python scripts/parse_codebase.py examples/demo_pkg --clear`}
+                    </pre>
+                    <p className="empty-cta-hint">
+                        Desktop recommended. Double-click nodes with children to expand.
+                    </p>
+                    <a
+                        className="empty-cta-link"
+                        href="https://github.com/mohitmishra786/neuro-code/blob/main/docs/DEPLOYMENT.md"
+                        target="_blank"
+                        rel="noreferrer"
+                    >
+                        Full setup guide →
+                    </a>
+                </div>
             </div>
         );
     }

@@ -70,6 +70,8 @@ export function isValidNodeType(value: unknown): value is NodeType {
 }
 
 export type ValidNodeType = typeof NODE_TYPE_VALUES[number];
+
+export type RelationshipType =
     | 'CONTAINS'
     | 'IMPORTS'
     | 'CALLS'
