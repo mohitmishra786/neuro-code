@@ -10,7 +10,7 @@ NeuroCode is for **Python engineers onboarding to a large, unfamiliar codebase**
 
 ![NeuroCode hierarchical graph preview](docs/assets/hero-diagram.svg)
 
-*Illustrative UI of the hierarchical explorer (package → module → class → function). Desktop recommended.*
+*Illustrative UI of the hierarchical explorer (package → module → class → function). Desktop recommended. Live PNG captures tracked in issue #223.*
 
 > **Status:** early `0.1.x` (alpha). Performance numbers in this README are **design goals**, not published benchmarks—see [docs/BENCHMARKS.md](docs/BENCHMARKS.md).
 

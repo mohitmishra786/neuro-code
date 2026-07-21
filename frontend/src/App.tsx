@@ -10,6 +10,7 @@ import { Breadcrumbs } from '@/components/Breadcrumbs';
 import { ControlPanel } from '@/components/ControlPanel';
 import { ThemeToggle } from '@/components/ThemeToggle';
 import { GraphLegend } from '@/components/GraphLegend';
+import { FirstRunTour } from '@/components/FirstRunTour';
 import { useTreeStore } from '@/stores/treeStore';
 import { useThemeStore } from '@/stores/themeStore';
 import { useWebSocket } from '@/hooks/useWebSocket';
@@ -163,6 +164,7 @@ function App() {
                 <div className="graph-container">
                     <TreeGraph />
                     <GraphLegend />
+                    <FirstRunTour />
                 </div>
                 <aside className="sidebar">
                     <NodeInfoPanel />

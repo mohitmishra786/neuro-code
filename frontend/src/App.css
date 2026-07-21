@@ -1460,3 +1460,106 @@ body {
   color: var(--color-text-muted);
   line-height: 1.4;
 }
+
+/* ===== First-run tour ===== */
+.first-run-tour {
+  position: absolute;
+  top: 16px;
+  left: 16px;
+  z-index: 20;
+  max-width: 320px;
+  pointer-events: auto;
+}
+
+.first-run-tour-content {
+  padding: var(--space-md) var(--space-lg);
+  background: var(--color-surface-glass);
+  backdrop-filter: blur(16px);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-lg);
+  color: var(--color-text);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.first-run-tour-content strong {
+  display: block;
+  margin-bottom: var(--space-sm);
+  font-size: 14px;
+}
+
+.first-run-tour-content ol {
+  margin: 0 0 var(--space-sm) var(--space-md);
+  padding: 0;
+}
+
+.first-run-tour-hint {
+  color: var(--color-text-muted);
+  font-size: 12px;
+  margin: 0 0 var(--space-md) 0;
+}
+
+.first-run-tour-btn {
+  border: none;
+  border-radius: var(--radius-md);
+  background: var(--color-accent);
+  color: white;
+  font-weight: 600;
+  font-size: 12px;
+  padding: 8px 14px;
+  cursor: pointer;
+}
+
+.first-run-tour-btn:hover {
+  background: var(--color-accent-hover);
+}
+
+/* ===== Node info loading ===== */
+.node-info-loading {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  margin-bottom: var(--space-md);
+  font-size: 13px;
+  color: var(--color-text-secondary);
+}
+
+.spinner-sm {
+  width: 14px;
+  height: 14px;
+  border: 2px solid var(--color-border);
+  border-top-color: var(--color-accent);
+  border-radius: 50%;
+  animation: spin 0.7s linear infinite;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+.empty-state-hint {
+  font-size: 12px;
+  color: var(--color-text-muted);
+  margin-top: var(--space-sm);
+}
+
+.node-info-docstring-empty .muted {
+  color: var(--color-text-muted);
+  font-style: italic;
+}
+
+/* Focus ring for keyboard nav on graph nodes */
+.circle-node:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 4px;
+  border-radius: 8px;
+}
+
+/* Reduce label overlap: slightly smaller labels at default */
+.circle-node-label {
+  max-width: 110px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

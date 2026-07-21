@@ -64,9 +64,8 @@ jobs:
       - name: ESLint
         run: npm run lint
 
-      - name: Vitest (stable suites)
-        run: >
-          npm run test -- --run
-          src/components
-          src/services/__tests__/api-config.test.ts
-          src/types/__tests__/errors.test.ts
+      - name: TypeScript (app sources)
+        run: npx tsc --noEmit -p tsconfig.app.json
+
+      - name: Vitest (full suite)
+        run: npm run test -- --run

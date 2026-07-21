@@ -330,7 +330,14 @@ class Neo4jClient(LoggerMixin):
                 return (stmt, None)
             except Exception as e:
                 error_msg = str(e)
-                if "ConstraintAlreadyExists" not in error_msg and "Database not available" not in error_msg:
+                soft = (
+                    "ConstraintAlreadyExists" in error_msg
+                    or "EquivalentSchemaRuleAlreadyExists" in error_msg
+                    or "already exists" in error_msg.lower()
+                    or "Database not available" in error_msg
+                    or "Enterprise Edition" in error_msg
+                )
+                if not soft:
                     return (stmt, error_msg)
                 return (stmt, None)
         

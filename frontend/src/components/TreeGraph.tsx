@@ -18,10 +18,6 @@ import ReactFlow, {
     Node,
     Edge,
     Position,
-    NodeChange,
-    EdgeChange,
-    applyNodeChanges,
-    applyEdgeChanges,
 } from 'reactflow';
 import dagre from 'dagre';
 import 'reactflow/dist/style.css';
@@ -123,7 +119,7 @@ function TreeGraphInner() {
     // Apply dagre layout when nodes/edges change
     const layoutedElements: LayoutedElements = useMemo(() => {
         if (nodes.length === 0) return { nodes: [], edges: [] };
-        return getLayoutedElements(nodes, edges);
+        return getLayoutedElements([...nodes], [...edges]);
     }, [nodes, edges]);
     
     // Fit view when layout changes - with proper cleanup to prevent race conditions

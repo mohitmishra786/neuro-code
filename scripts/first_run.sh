@@ -1,7 +1,6 @@
 #!/usr/bin/env bash
-# NeuroCode first-run: start stack (or Neo4j), parse demo package, print URLs.
-# Usage: ./scripts/first_run.sh
-# Requires: Docker (for Neo4j/full stack) and Python 3.11+ with backend deps for parse.
+# NeuroCode first-run: start Neo4j, backend, parse demo, print URLs.
+# Prefers Docker for Neo4j; runs backend + parse on host for reliability.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -22,6 +21,7 @@ need_cmd() {
 
 need_cmd docker
 need_cmd python3
+need_cmd curl
 
 if ! docker compose version >/dev/null 2>&1 && ! docker-compose version >/dev/null 2>&1; then
   die "Docker Compose is required (docker compose or docker-compose)"
@@ -35,42 +35,86 @@ compose() {
   fi
 }
 
-log "Starting NeuroCode services (Neo4j, backend, frontend)…"
-compose up -d
+log "Starting Neo4j (Docker)…"
+compose up neo4j -d
 
-log "Waiting for backend health at ${BACKEND_URL}/health …"
+log "Waiting for Neo4j Bolt on localhost:7687…"
 attempts=0
-until curl -sf "${BACKEND_URL}/health" >/dev/null 2>&1; do
+until docker exec neurocode-neo4j cypher-shell -u neo4j -p "$NEO4J_PASSWORD" "RETURN 1" >/dev/null 2>&1; do
   attempts=$((attempts + 1))
-  if [[ "$attempts" -ge 60 ]]; then
-    die "Backend did not become healthy within 60s. Check: docker compose -f docker/docker-compose.yml logs"
+  if [[ "$attempts" -ge 40 ]]; then
+    die "Neo4j did not become ready. Logs: docker logs neurocode-neo4j"
   fi
-  sleep 2
+  sleep 3
 done
-log "Backend is healthy."
+log "Neo4j is ready."
 
-# Prefer host-side parse so Neo4j is reachable on localhost:7687
-if [[ ! -d "$ROOT/backend" ]]; then
-  die "backend/ directory missing"
-fi
-
-log "Installing backend dependencies if needed…"
-if [[ ! -d "$ROOT/venv" ]]; then
+if [[ ! -d "$ROOT/venv" && ! -d "$ROOT/.venv" ]]; then
+  log "Creating Python venv…"
   python3 -m venv "$ROOT/venv"
-  # shellcheck disable=SC1091
-  source "$ROOT/venv/bin/activate"
-  pip install -q -r "$ROOT/backend/requirements.txt"
-else
-  # shellcheck disable=SC1091
-  source "$ROOT/venv/bin/activate"
 fi
+# shellcheck disable=SC1091
+if [[ -f "$ROOT/venv/bin/activate" ]]; then
+  source "$ROOT/venv/bin/activate"
+elif [[ -f "$ROOT/.venv/bin/activate" ]]; then
+  source "$ROOT/.venv/bin/activate"
+fi
+
+log "Installing backend dependencies…"
+pip install -q -r "$ROOT/backend/requirements.txt"
 
 export NEO4J_URI="${NEO4J_URI:-bolt://localhost:7687}"
 export NEO4J_USER="${NEO4J_USER:-neo4j}"
 export NEO4J_PASSWORD
+export API_ALLOWED_PARSE_PATHS="${API_ALLOWED_PARSE_PATHS:-$ROOT}"
 
 log "Parsing demo package: $DEMO_PATH"
 python "$ROOT/scripts/parse_codebase.py" "$DEMO_PATH" --clear
+
+# Start backend if not already healthy
+if ! curl -sf "${BACKEND_URL}/health" >/dev/null 2>&1; then
+  log "Starting backend on :8000…"
+  (
+    cd "$ROOT/backend"
+    nohup uvicorn api.main:app --host 0.0.0.0 --port 8000 >"$ROOT/.neurocode-backend.log" 2>&1 &
+    echo $! >"$ROOT/.neurocode-backend.pid"
+  )
+  attempts=0
+  until curl -sf "${BACKEND_URL}/health" >/dev/null 2>&1; do
+    attempts=$((attempts + 1))
+    if [[ "$attempts" -ge 30 ]]; then
+      die "Backend failed to start. See .neurocode-backend.log"
+    fi
+    sleep 1
+  done
+fi
+log "Backend is healthy."
+
+# Start frontend if needed
+if ! curl -sf "${FRONTEND_URL}" >/dev/null 2>&1; then
+  if command -v npm >/dev/null 2>&1; then
+    log "Starting frontend on :3000…"
+    (
+      cd "$ROOT/frontend"
+      if [[ ! -d node_modules ]]; then
+        npm install --silent
+      fi
+      nohup npm run dev -- --host 0.0.0.0 --port 3000 >"$ROOT/.neurocode-frontend.log" 2>&1 &
+      echo $! >"$ROOT/.neurocode-frontend.pid"
+    )
+    attempts=0
+    until curl -sf "${FRONTEND_URL}" >/dev/null 2>&1; do
+      attempts=$((attempts + 1))
+      if [[ "$attempts" -ge 45 ]]; then
+        log "Frontend not responding yet — start manually: cd frontend && npm run dev"
+        break
+      fi
+      sleep 2
+    done
+  else
+    log "npm not found; start frontend manually: cd frontend && npm run dev"
+  fi
+fi
 
 cat <<EOF
 
@@ -83,7 +127,7 @@ NeuroCode is ready.
 
 Open ${FRONTEND_URL} and double-click nodes to expand the hierarchy.
 
-Stop services:
-  docker compose -f docker/docker-compose.yml down
+Stop Neo4j:
+  docker compose -f docker/docker-compose.yml stop neo4j
 
 EOF

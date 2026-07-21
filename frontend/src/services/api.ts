@@ -6,9 +6,6 @@
 
 import {
     ApiNode,
-    RootNodesResponse,
-    ChildrenResponse,
-    AncestorsResponse,
     SearchResponse,
     ReferencesResponse,
     GraphNode,
@@ -19,7 +16,7 @@ import {
     isValidChildrenResponse,
     isValidAncestorsResponse,
 } from '@/types/graph.types';
-import { ApiError, NeuroCodeError, ErrorCodes } from '@/types/errors';
+import { ApiError } from '@/types/errors';
 
 /** API base URL from environment or default. */
 const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:8000';

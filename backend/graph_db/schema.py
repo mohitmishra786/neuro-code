@@ -278,10 +278,11 @@ class GraphSchema:
         statements: list[str] = []
 
         for node_def in cls.NODES.values():
-            # Require ID for all node types
+            # Community Edition supports uniqueness, not property-existence constraints.
+            # Uniqueness implies a usable identity index for graph nodes.
             statements.append(
-                f"CREATE CONSTRAINT {node_def.label.value.lower()}_id_exists "
-                f"IF NOT EXISTS FOR (n:{node_def.label.value}) REQUIRE n.id IS NOT NULL"
+                f"CREATE CONSTRAINT {node_def.label.value.lower()}_id_unique "
+                f"IF NOT EXISTS FOR (n:{node_def.label.value}) REQUIRE n.id IS UNIQUE"
             )
 
         return statements

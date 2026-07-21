@@ -51,7 +51,7 @@ function applyTheme(mode: ThemeMode): void {
 
 export const useThemeStore = create<ThemeState>()(
     persist(
-        (set, get) => ({
+        (set) => ({
             mode: getInitialTheme(),
 
             toggleTheme: () => {

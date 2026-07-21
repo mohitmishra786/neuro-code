@@ -41,8 +41,29 @@ vi.mock('@/services/cache', () => ({
 }));
 
 describe('useTreeStore', () => {
-    beforeEach(() => {
+    beforeEach(async () => {
+        Object.defineProperty(navigator, 'onLine', {
+            value: true,
+            writable: true,
+            configurable: true,
+        });
         useTreeStore.getState().reset();
+        // Restore default expand mock (some tests replace it)
+        const { api } = await import('@/services/api');
+        vi.mocked(api.expandNode).mockResolvedValue({
+            children: [
+                { id: 'cls1', name: 'Class1', type: 'class', childCount: 2, isExpanded: false },
+                { id: 'fn1', name: 'function1', type: 'function', childCount: 0, isExpanded: false },
+            ],
+            outgoing: [],
+        });
+        vi.mocked(api.getRootNodes).mockResolvedValue([
+            { id: 'pkg1', name: 'package1', type: 'package', childCount: 3, isExpanded: false },
+            { id: 'mod1', name: 'module1', type: 'module', childCount: 5, isExpanded: false },
+        ]);
+        vi.mocked(api.search).mockResolvedValue({
+            results: [{ id: 'cls1', name: 'Class1', type: 'class' }],
+        });
     });
 
     describe('NODE_COLORS', () => {

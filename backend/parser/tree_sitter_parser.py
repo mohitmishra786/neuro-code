@@ -74,6 +74,7 @@ class TreeSitterParser(LoggerMixin):
             return ModuleInfo(path=file_path, name=file_path.stem)
 
         module = self.parse_content(content, file_path)
+        self._assign_hierarchical_ids(module, file_path)
         elapsed_ms = (time.perf_counter() - start_time) * 1000
         self.log.debug(
             "parsed_file",
@@ -83,6 +84,45 @@ class TreeSitterParser(LoggerMixin):
             functions=len(module.functions),
         )
         return module
+
+    def _assign_hierarchical_ids(self, module: ModuleInfo, file_path: Path) -> None:
+        """
+        Assign stable hierarchical IDs used as Neo4j node keys.
+
+        Format: ``path::Class::method`` (AGENTS.md convention).
+        """
+        file_key = str(file_path).replace("\\", "/")
+        module.id = file_key
+        if not module.qualified_name:
+            module.qualified_name = module.name or file_path.stem
+
+        for imp in module.imports:
+            if not imp.id:
+                imp.id = f"{file_key}::import::{imp.module_name or 'unknown'}"
+
+        for var in module.variables:
+            if not var.id:
+                var.id = f"{file_key}::{var.name}"
+
+        for func in module.functions:
+            if not func.id:
+                func.id = f"{file_key}::{func.name}"
+
+        def walk_class(cls: ClassInfo, prefix: str) -> None:
+            if not cls.id:
+                cls.id = f"{prefix}::{cls.name}"
+            class_prefix = cls.id
+            for method in cls.methods:
+                if not method.id:
+                    method.id = f"{class_prefix}::{method.name}"
+            for var in getattr(cls, "all_variables", []) or []:
+                if not var.id:
+                    var.id = f"{class_prefix}::{var.name}"
+            for nested in cls.nested_classes:
+                walk_class(nested, class_prefix)
+
+        for cls in module.classes:
+            walk_class(cls, file_key)
 
     def _read_file_with_encoding(self, file_path: Path) -> bytes:
         """
