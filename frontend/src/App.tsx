@@ -62,6 +62,8 @@ function App() {
     }, [mode]);
 
     useEffect(() => {
+        // Poll backend health; setState after async fetch is intentional.
+        // eslint-disable-next-line react-hooks/set-state-in-effect -- external system poll
         void checkHealth();
         const id = window.setInterval(() => void checkHealth(), 30000);
         return () => window.clearInterval(id);

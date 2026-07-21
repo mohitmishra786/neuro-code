@@ -101,10 +101,14 @@ async function fetchJson<T>(
 
     if (!response.ok) {
         const errorText = await response.text();
-        let errorMessage = 'Unknown error';
+        let errorMessage: string;
         try {
-            const errorJson = JSON.parse(errorText);
-            errorMessage = errorJson?.message || errorJson?.detail || errorText;
+            const errorJson = JSON.parse(errorText) as {
+                message?: string;
+                detail?: string;
+            };
+            errorMessage =
+                errorJson?.message || errorJson?.detail || errorText || 'Unknown error';
         } catch {
             errorMessage = errorText || 'Unknown error';
         }

@@ -29,9 +29,22 @@ export default defineConfig({
         sourcemap: true,
         rollupOptions: {
             output: {
-                manualChunks: {
-                    vendor: ['react', 'react-dom'],
-                    graph: ['reactflow', 'dagre'],
+                // Vite 8 / Rolldown expects a function form of manualChunks
+                manualChunks(id: string) {
+                    if (
+                        id.includes('node_modules/react/') ||
+                        id.includes('node_modules/react-dom/') ||
+                        id.includes('node_modules/scheduler/')
+                    ) {
+                        return 'vendor';
+                    }
+                    if (
+                        id.includes('node_modules/reactflow') ||
+                        id.includes('node_modules/@reactflow') ||
+                        id.includes('node_modules/dagre')
+                    ) {
+                        return 'graph';
+                    }
                 },
             },
         },

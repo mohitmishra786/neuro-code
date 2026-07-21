@@ -2,22 +2,20 @@
  * Dismissible first-run tip for graph discoverability.
  */
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useState } from 'react';
 
 const STORAGE_KEY = 'neurocode-first-run-dismissed';
 
-export function FirstRunTour() {
-    const [visible, setVisible] = useState(false);
+function readInitialVisible(): boolean {
+    try {
+        return localStorage.getItem(STORAGE_KEY) !== '1';
+    } catch {
+        return true;
+    }
+}
 
-    useEffect(() => {
-        try {
-            if (localStorage.getItem(STORAGE_KEY) !== '1') {
-                setVisible(true);
-            }
-        } catch {
-            setVisible(true);
-        }
-    }, []);
+export function FirstRunTour() {
+    const [visible, setVisible] = useState(readInitialVisible);
 
     const dismiss = useCallback(() => {
         setVisible(false);
