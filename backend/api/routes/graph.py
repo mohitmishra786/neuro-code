@@ -20,12 +20,13 @@ from parser.relationship_extractor import RelationshipExtractor
 from merkle.change_detector import ChangeDetector
 from utils.logger import get_logger
 from utils.config import get_settings
+from api.path_security import validate_parse_directory
 
 router = APIRouter()
 logger = get_logger("api.graph")
 security = HTTPBearer(auto_error=False)
 
-# Shared state for parser and change detector
+# Shared state for parser and change detector (lazy-ish module init)
 _parser = TreeSitterParser()
 _change_detector = ChangeDetector()
 _relationship_extractor = RelationshipExtractor()
@@ -99,25 +100,8 @@ class ParseRequest(BaseModel):
     @field_validator("path")
     @classmethod
     def validate_path(cls, v: str) -> str:
-        """Validate path to prevent directory traversal attacks."""
-        resolved = Path(v).resolve()
-        
-        # Check for path traversal attempts
-        if ".." in str(v):
-            raise ValueError("Path traversal not allowed")
-        
-        # Check if path exists and is accessible
-        if not resolved.exists():
-            raise ValueError(f"Path does not exist: {v}")
-        
-        # Only allow absolute paths or relative to current directory
-        settings = get_settings()
-        if hasattr(settings, 'allowed_parse_paths'):
-            allowed = [Path(p).resolve() for p in settings.allowed_parse_paths]
-            if not any(str(resolved).startswith(str(a)) for a in allowed):
-                raise ValueError(f"Path not in allowed directories: {v}")
-        
-        return str(resolved)
+        """Validate path against allowlist and block directory traversal."""
+        return validate_parse_directory(v)
 
     recursive: bool = Field(default=True, description="Parse subdirectories recursively")
 

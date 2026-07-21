@@ -331,6 +331,38 @@ class ProjectParser(LoggerMixin):
         
         return self.packages, self.modules, self.relationships
     
+    def _discover_files(self) -> list[Path]:
+        """
+        Find all Python files under the project root (sync).
+
+        Returns:
+            Sorted list of Python file paths
+        """
+        files: list[Path] = []
+        visited: set[str] = set()
+
+        for file_path in self.root.rglob("*.py"):
+            if self._should_ignore(file_path):
+                continue
+            try:
+                resolved = file_path.resolve(strict=False)
+            except (OSError, RuntimeError) as e:
+                self.log.warning(
+                    "path_resolution_failed",
+                    path=str(file_path),
+                    error=str(e),
+                )
+                continue
+            canonical = str(resolved)
+            if canonical in visited:
+                self.log.warning("skipping_symlink_cycle", path=canonical)
+                continue
+            visited.add(canonical)
+            files.append(resolved)
+
+        files.sort(key=lambda p: str(p))
+        return files
+
     async def _discover_files_async(self) -> list[Path]:
         """
         Find all Python files asynchronously.

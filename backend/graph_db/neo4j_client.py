@@ -75,13 +75,15 @@ class Neo4jClient(LoggerMixin):
     @classmethod
     async def close_all(cls) -> None:
         """Close all active Neo4j client instances to prevent leaks."""
+        from utils.logger import get_logger
+
         closed_count = 0
         for instance in list(cls._instances):
             if not instance._closed:
                 await instance.close()
                 closed_count += 1
         if closed_count > 0:
-            cls.log.info("closed_all_instances", count=closed_count)
+            get_logger("neo4j").info("closed_all_instances", count=closed_count)
 
     async def connect(self, timeout: float = 5.0) -> bool:
         """

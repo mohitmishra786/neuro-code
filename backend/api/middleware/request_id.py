@@ -69,7 +69,10 @@ def get_request_id() -> str | None:
     Returns:
         Current request ID or None if not in request context
     """
-    return structlog.contextvars.get_context_var(RequestIDMiddleware.CONTEXT_KEY)
+    # structlog >=24 uses get_contextvars(); older docs mentioned get_context_var
+    ctx = structlog.contextvars.get_contextvars()
+    value = ctx.get(RequestIDMiddleware.CONTEXT_KEY)
+    return value if isinstance(value, str) else None
 
 
 def bind_request_id(request_id: str) -> None:

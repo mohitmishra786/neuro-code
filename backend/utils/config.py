@@ -12,7 +12,7 @@ from typing import Annotated
 
 from dotenv import load_dotenv
 from pydantic import Field, field_validator
-from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
 # Load .env file into os.environ at module import time
 # This ensures nested BaseSettings classes can read the values
@@ -103,14 +103,22 @@ class APISettings(BaseSettings):
         description="Allowed CORS origins (empty in production)",
     )
     request_timeout: float = Field(default=60.0, ge=1.0)
-    allowed_parse_paths: list[str] = Field(
+    allowed_parse_paths: Annotated[list[str], NoDecode] = Field(
         default_factory=lambda: [os.getcwd()],
-        description="List of allowed base paths for parsing (prevents path traversal)"
+        description="List of allowed base paths for parsing (prevents path traversal)",
     )
     api_key: str = Field(
         default="",
-        description="API key for destructive operations (clear, delete)"
+        description="API key for destructive operations (clear, delete)",
     )
+
+    @field_validator("allowed_parse_paths", mode="before")
+    @classmethod
+    def parse_allowed_parse_paths(cls, v: str | list[str]) -> list[str]:
+        """Parse allowed paths from comma-separated string or list."""
+        if isinstance(v, str):
+            return [p.strip() for p in v.split(",") if p.strip()]
+        return v
     rate_limit_enabled: bool = Field(
         default=True,
         description="Enable rate limiting on API endpoints"
