@@ -3,9 +3,28 @@
 ## Prerequisites
 
 - Python 3.11+
-- Node.js 20+
+- Node.js **20+**
 - Docker and Docker Compose (for containerized deployment)
-- Neo4j 5.x (or use Docker)
+- Neo4j 5.x — Compose uses **`neo4j:5.26-community`** (5.x LTS)
+
+## Fastest path
+
+```bash
+# From repo root
+make demo
+# → http://localhost:3000 with examples/demo_pkg already parsed
+```
+
+## Ports & default credentials (development only)
+
+| Service | Port / URL | Credentials |
+|---------|------------|-------------|
+| Frontend | http://localhost:3000 | — |
+| Backend API | http://localhost:8000 | No general auth (local-only model) |
+| Neo4j Browser | http://localhost:7474 | `neo4j` / `neurocode_password` (override with `NEO4J_PASSWORD`) |
+| Neo4j Bolt | 7687 | same |
+
+**Warning:** Default passwords are for local demo only. Never reuse them on shared or public hosts. Do **not** expose the API or Neo4j to the public internet without authentication, network isolation, and a strict `API_ALLOWED_PARSE_PATHS` allowlist. See [SECURITY.md](../SECURITY.md).
 
 ---
 
@@ -57,7 +76,7 @@ docker run -d \
   --name neurocode-neo4j \
   -p 7474:7474 -p 7687:7687 \
   -e NEO4J_AUTH=neo4j/password \
-  neo4j:5.15-community
+  neo4j:5.26-community
 ```
 
 ---

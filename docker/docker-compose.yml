@@ -2,10 +2,12 @@ version: '3.8'
 
 services:
   neo4j:
-    image: neo4j:5.15-community
+    # 5.26 is Neo4j 5.x LTS (hotfixes until June 2028). Override password in production.
+    image: neo4j:5.26-community
     container_name: neurocode-neo4j
     environment:
-      NEO4J_AUTH: neo4j/neurocode_password
+      # DEV DEFAULT ONLY — change NEO4J_AUTH for any shared or remote environment
+      NEO4J_AUTH: neo4j/${NEO4J_PASSWORD:-neurocode_password}
       NEO4J_PLUGINS: '["apoc"]'
       NEO4J_dbms_security_procedures_unrestricted: apoc.*
       NEO4J_dbms_memory_heap_initial__size: 512m
@@ -33,11 +35,14 @@ services:
     environment:
       NEO4J_URI: bolt://neo4j:7687
       NEO4J_USER: neo4j
-      NEO4J_PASSWORD: neurocode_password
+      NEO4J_PASSWORD: ${NEO4J_PASSWORD:-neurocode_password}
+      # Restrict parse API to mounted workspace paths (container)
+      API_ALLOWED_PARSE_PATHS: /workspace,/app
       API_HOST: 0.0.0.0
       API_PORT: 8000
       LOG_LEVEL: INFO
       LOG_FORMAT: json
+      ENVIRONMENT: development
     ports:
       - "8000:8000"
     volumes:
