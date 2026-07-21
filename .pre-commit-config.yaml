@@ -1,0 +1,38 @@
+# Local hooks mirroring CI gates. Install: make install-hooks
+# Run all: pre-commit run --all-files
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+      - id: trailing-whitespace
+        exclude: ^(docs/audit/|.*\.svg$)
+      - id: end-of-file-fixer
+        exclude: ^(docs/audit/|.*\.svg$)
+      - id: check-yaml
+        args: [--unsafe]
+      - id: check-json
+      - id: check-merge-conflict
+      - id: check-added-large-files
+        args: [--maxkb=500]
+      - id: detect-private-key
+
+  - repo: local
+    hooks:
+      - id: backend-ruff
+        name: backend ruff (CI scope)
+        entry: bash -c 'cd backend && python -m ruff check api/ utils/ merkle/ graph_db/ parser/tree_sitter_parser.py tests/'
+        language: system
+        files: ^backend/(api|utils|merkle|graph_db|parser/tree_sitter_parser\.py|tests)/
+        pass_filenames: false
+      - id: frontend-eslint
+        name: frontend eslint
+        entry: bash -c 'cd frontend && npm run lint'
+        language: system
+        files: ^frontend/src/.*\.(ts|tsx)$
+        pass_filenames: false
+      - id: frontend-tsc
+        name: frontend tsc (app)
+        entry: bash -c 'cd frontend && npx tsc --noEmit -p tsconfig.app.json'
+        language: system
+        files: ^frontend/src/.*\.(ts|tsx)$
+        pass_filenames: false

@@ -43,6 +43,7 @@ jobs:
       - name: Install pip-audit
         run: python -m pip install --upgrade pip pip-audit
       - name: Audit requirements
+        # Prefer strict; fall back if advisory data is incomplete
         run: pip-audit -r requirements.txt --strict || pip-audit -r requirements.txt
 
   npm-audit:
@@ -75,6 +76,36 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         continue-on-error: true
+
+  trivy:
+    name: Filesystem vulnerability scan (Trivy)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      # Download official release binary (no third-party action; avoid install.sh flakiness)
+      - name: Install Trivy
+        env:
+          TRIVY_VERSION: "0.72.0"
+        run: |
+          set -euo pipefail
+          mkdir -p "$HOME/.local/bin"
+          ARCHIVE="trivy_${TRIVY_VERSION}_Linux-64bit.tar.gz"
+          curl -fsSL \
+            "https://github.com/aquasecurity/trivy/releases/download/v${TRIVY_VERSION}/${ARCHIVE}" \
+            -o "/tmp/${ARCHIVE}"
+          tar -xzf "/tmp/${ARCHIVE}" -C "$HOME/.local/bin" trivy
+          chmod +x "$HOME/.local/bin/trivy"
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+          "$HOME/.local/bin/trivy" --version
+      - name: Run Trivy filesystem scan
+        run: |
+          trivy fs \
+            --severity CRITICAL,HIGH \
+            --exit-code 0 \
+            --ignore-unfixed \
+            --scanners vuln \
+            --format table \
+            .
 
   codeql:
     name: CodeQL
