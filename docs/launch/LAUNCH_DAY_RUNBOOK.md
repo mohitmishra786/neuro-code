@@ -21,7 +21,7 @@ Full hour-by-hour plan: audit Artifact 08. Summary:
 
 ## If asked “why so many issues?”
 
-> Most historical tickets were auto-generated static analysis debt from an internal agent pass. We triaged before launch; please open a new issue with repro for anything user-facing.
+> Most historical tickets were auto-generated static analysis debt from an internal agent pass (not user reports). We closed that bulk backlog as not-planned for v0.1 and track real work in a small set of human-written issues. Please open a **new** issue with repro for anything user-facing.
 
 ## Hotfix
 

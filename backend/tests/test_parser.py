@@ -9,7 +9,6 @@ from pathlib import Path
 import pytest
 
 from parser.tree_sitter_parser import TreeSitterParser
-from parser.models import NodeType
 
 
 class TestTreeSitterParser:
@@ -243,8 +242,8 @@ def helper():
 
     def test_module_to_package_relationship(self, project_dir: Path):
         """Test that modules are linked to their parent packages."""
-        from parser.project_parser import ProjectParser
         from parser.models import RelationshipType
+        from parser.project_parser import ProjectParser
         
         parser = ProjectParser(project_dir)
         packages, modules, relationships = parser.parse_project()

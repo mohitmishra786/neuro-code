@@ -4,8 +4,9 @@ Tests for Streaming Parser and Tree-sitter Recursion Limit.
 Requires Python 3.11+.
 """
 
-import pytest
 from pathlib import Path
+
+import pytest
 
 from parser.streaming_parser import StreamingProjectParser
 from parser.tree_sitter_parser import TreeSitterParser

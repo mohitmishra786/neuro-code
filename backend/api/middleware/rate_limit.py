@@ -8,11 +8,13 @@ Requires Python 3.11+.
 from __future__ import annotations
 
 import asyncio
+import ipaddress
 import time
 from collections import deque
+from collections.abc import Callable
 from dataclasses import dataclass
 from functools import wraps
-from typing import Any, Callable
+from typing import Any
 
 from fastapi import HTTPException, Request, Response
 from starlette.types import ASGIApp, Receive, Scope, Send
@@ -21,7 +23,7 @@ from utils.config import get_settings
 from utils.logger import LoggerMixin
 
 
-@dataclass
+@dataclass(slots=True)
 class RateLimitInfo:
     """Information about a rate limit decision."""
 
@@ -43,7 +45,8 @@ class RateLimiter(LoggerMixin):
         self.window_seconds = settings.rate_limit_window
         self.burst_allowance = settings.rate_limit_burst
 
-        self._requests: dict[str, deque[tuple[float, int]]] = {}
+        # Timestamps of accepted requests only (no burst-flag side effects)
+        self._requests: dict[str, deque[float]] = {}
         self._lock = asyncio.Lock()
 
         if self.enabled:
@@ -55,11 +58,18 @@ class RateLimiter(LoggerMixin):
             )
 
     async def is_allowed(self, client_ip: str) -> RateLimitInfo:
-        """Return whether the client may proceed and remaining quota."""
+        """Return whether the client may proceed and remaining quota.
+
+        Burst is additive: total capacity per window is
+        ``requests_per_window + burst_allowance``. Burst tokens are only
+        considered after the base quota is exhausted.
+        """
+        max_limit = self.requests_per_window + self.burst_allowance
+
         if not self.enabled:
             return RateLimitInfo(
-                limit=self.requests_per_window,
-                remaining=self.requests_per_window,
+                limit=max_limit,
+                remaining=max_limit,
                 reset_at=time.time() + self.window_seconds,
                 window=self.window_seconds,
                 allowed=True,
@@ -73,40 +83,39 @@ class RateLimiter(LoggerMixin):
 
             requests = self._requests[client_ip]
             window_start = current_time - self.window_seconds
-            while requests and requests[0][0] < window_start:
+            while requests and requests[0] < window_start:
                 requests.popleft()
 
             window_count = len(requests)
-            burst_used = sum(1 for _, burst in requests if burst > 0)
-            burst_remaining = max(0, self.burst_allowance - burst_used)
-            effective_limit = self.requests_per_window + burst_remaining
+            reset_at = (
+                requests[0] + self.window_seconds
+                if requests
+                else current_time + self.window_seconds
+            )
 
-            if window_count >= effective_limit:
-                reset_at = (
-                    requests[0][0] + self.window_seconds
-                    if requests
-                    else current_time + self.window_seconds
-                )
+            if window_count >= max_limit:
                 self.log.warning(
                     "rate_limit_exceeded",
                     client_ip=client_ip,
                     window_count=window_count,
                 )
                 return RateLimitInfo(
-                    limit=effective_limit,
+                    limit=max_limit,
                     remaining=0,
                     reset_at=reset_at,
                     window=self.window_seconds,
                     allowed=False,
                 )
 
-            requests.append((current_time, 1 if burst_remaining > 0 else 0))
-            remaining = max(0, effective_limit - len(requests))
+            requests.append(current_time)
+            remaining = max(0, max_limit - len(requests))
+            # Keep reset_at consistent with rejection path after append
+            reset_at = requests[0] + self.window_seconds
 
             return RateLimitInfo(
-                limit=effective_limit,
+                limit=max_limit,
                 remaining=remaining,
-                reset_at=window_start + self.window_seconds,
+                reset_at=reset_at,
                 window=self.window_seconds,
                 allowed=True,
             )
@@ -119,10 +128,37 @@ class RateLimiter(LoggerMixin):
 
             for client_ip in list(self._requests.keys()):
                 requests = self._requests[client_ip]
-                while requests and requests[0][0] < cutoff_time:
+                while requests and requests[0] < cutoff_time:
                     requests.popleft()
                 if not requests:
                     del self._requests[client_ip]
+
+
+def _peer_ip(scope: Scope) -> str | None:
+    client = scope.get("client")
+    if client and isinstance(client, (list, tuple)) and len(client) > 0:
+        return str(client[0])
+    return None
+
+
+def _ip_in_trusted(peer: str, trusted: list[str]) -> bool:
+    """Return True if peer is in any trusted host/CIDR entry."""
+    try:
+        peer_addr = ipaddress.ip_address(peer)
+    except ValueError:
+        return peer in trusted
+
+    for entry in trusted:
+        try:
+            if "/" in entry:
+                if peer_addr in ipaddress.ip_network(entry, strict=False):
+                    return True
+            elif peer_addr == ipaddress.ip_address(entry):
+                return True
+        except ValueError:
+            if peer == entry:
+                return True
+    return False
 
 
 class RateLimitMiddleware:
@@ -131,6 +167,7 @@ class RateLimitMiddleware:
     def __init__(self, app: ASGIApp) -> None:
         self.app = app
         self._limiter = RateLimiter()
+        self._trusted_proxies = list(get_settings().api.trusted_proxies)
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
         if scope["type"] != "http":
@@ -174,6 +211,14 @@ class RateLimitMiddleware:
         await self.app(scope, receive, send_with_headers)
 
     def _get_client_ip(self, scope: Scope) -> str:
+        """Use socket peer by default; honor XFF only from trusted proxies."""
+        peer = _peer_ip(scope)
+        if peer is None:
+            return "unknown"
+
+        if not self._trusted_proxies or not _ip_in_trusted(peer, self._trusted_proxies):
+            return peer
+
         raw_headers = scope.get("headers") or []
         headers = {
             k.decode("latin-1").lower(): v.decode("latin-1")
@@ -182,30 +227,26 @@ class RateLimitMiddleware:
         }
         for header in ("x-forwarded-for", "x-real-ip"):
             if header in headers:
-                return headers[header].split(",")[0].strip()
-
-        client = scope.get("client")
-        if client and isinstance(client, (list, tuple)) and len(client) > 0:
-            return str(client[0])
-        return "unknown"
+                # Rightmost client before proxies is safest with known hop count=1
+                return headers[header].split(",")[0].strip() or peer
+        return peer
 
 
 def rate_limit(
     requests_per_window: int | None = None,
     window_seconds: int | None = None,
-) -> Callable:
+) -> Callable[..., Any]:
     """Decorator for tighter per-route limits (uses a dedicated limiter instance)."""
     settings = get_settings().api
-    _ = requests_per_window if requests_per_window is not None else settings.rate_limit_requests
-    _ = window_seconds if window_seconds is not None else settings.rate_limit_window
 
     limiter = RateLimiter()
     if requests_per_window is not None:
         limiter.requests_per_window = requests_per_window
     if window_seconds is not None:
         limiter.window_seconds = window_seconds
+    _ = settings  # keep settings read for future route-level defaults
 
-    def decorator(func: Callable) -> Callable:
+    def decorator(func: Callable[..., Any]) -> Callable[..., Any]:
         @wraps(func)
         async def wrapper(*args: Any, **kwargs: Any) -> Any:
             request = None

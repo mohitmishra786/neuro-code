@@ -44,19 +44,19 @@ describe('isValidNodeType', () => {
 });
 
 describe('isValidRelationshipType', () => {
-    it('should return true for valid relationship types', () => {
-        expect(isValidRelationshipType('CONTAINS')).toBe(true);
-        expect(isValidRelationshipType('IMPORTS')).toBe(true);
-        expect(isValidRelationshipType('CALLS')).toBe(true);
-        expect(isValidRelationshipType('INSTANTIATES')).toBe(true);
-        expect(isValidRelationshipType('INHERITS')).toBe(true);
-        expect(isValidRelationshipType('DECORATES')).toBe(true);
-        expect(isValidRelationshipType('DEFINES')).toBe(true);
-        expect(isValidRelationshipType('USES')).toBe(true);
+    it('should return true for valid relationship types (lowercase, backend-aligned)', () => {
+        expect(isValidRelationshipType('contains')).toBe(true);
+        expect(isValidRelationshipType('imports')).toBe(true);
+        expect(isValidRelationshipType('calls')).toBe(true);
+        expect(isValidRelationshipType('instantiates')).toBe(true);
+        expect(isValidRelationshipType('inherits')).toBe(true);
+        expect(isValidRelationshipType('decorates')).toBe(true);
+        expect(isValidRelationshipType('defines')).toBe(true);
+        expect(isValidRelationshipType('uses')).toBe(true);
     });
 
     it('should return false for invalid relationship types', () => {
-        expect(isValidRelationshipType('contains')).toBe(false);
+        expect(isValidRelationshipType('CONTAINS')).toBe(false);
         expect(isValidRelationshipType('invalid')).toBe(false);
         expect(isValidRelationshipType('')).toBe(false);
         expect(isValidRelationshipType(123 as unknown)).toBe(false);
@@ -262,14 +262,14 @@ describe('parseRootNodesResponse', () => {
 
 describe('RELATIONSHIP_TYPE_VALUES', () => {
     it('should contain all valid relationship types', () => {
-        expect(RELATIONSHIP_TYPE_VALUES).toContain('CONTAINS');
-        expect(RELATIONSHIP_TYPE_VALUES).toContain('IMPORTS');
-        expect(RELATIONSHIP_TYPE_VALUES).toContain('CALLS');
-        expect(RELATIONSHIP_TYPE_VALUES).toContain('INSTANTIATES');
-        expect(RELATIONSHIP_TYPE_VALUES).toContain('INHERITS');
-        expect(RELATIONSHIP_TYPE_VALUES).toContain('DECORATES');
-        expect(RELATIONSHIP_TYPE_VALUES).toContain('DEFINES');
-        expect(RELATIONSHIP_TYPE_VALUES).toContain('USES');
+        expect(RELATIONSHIP_TYPE_VALUES).toContain('contains');
+        expect(RELATIONSHIP_TYPE_VALUES).toContain('imports');
+        expect(RELATIONSHIP_TYPE_VALUES).toContain('calls');
+        expect(RELATIONSHIP_TYPE_VALUES).toContain('instantiates');
+        expect(RELATIONSHIP_TYPE_VALUES).toContain('inherits');
+        expect(RELATIONSHIP_TYPE_VALUES).toContain('decorates');
+        expect(RELATIONSHIP_TYPE_VALUES).toContain('defines');
+        expect(RELATIONSHIP_TYPE_VALUES).toContain('uses');
         expect(RELATIONSHIP_TYPE_VALUES.length).toBe(8);
     });
 });

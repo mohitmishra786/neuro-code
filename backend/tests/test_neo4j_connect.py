@@ -4,9 +4,9 @@ Tests for Neo4jClient connectivity improvements.
 Verifies that Neo4j connection is non-blocking with timeout support.
 """
 
-import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
-import asyncio
+
+import pytest
 
 
 class TestNeo4jClientConnect:
@@ -54,7 +54,7 @@ class TestNeo4jClientConnect:
         from graph_db.neo4j_client import Neo4jClient
 
         mock_driver = MagicMock()
-        mock_driver.verify_connectivity = AsyncMock(side_effect=asyncio.TimeoutError())
+        mock_driver.verify_connectivity = AsyncMock(side_effect=TimeoutError())
         mock_driver.close = AsyncMock()
 
         with patch(

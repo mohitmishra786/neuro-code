@@ -10,9 +10,9 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from merkle.hash_calculator import HashCalculator
 from parser.models import ModuleInfo
 from parser.tree_sitter_parser import TreeSitterParser
-from merkle.hash_calculator import HashCalculator
 from utils.logger import LoggerMixin
 
 

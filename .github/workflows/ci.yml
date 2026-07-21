@@ -1,5 +1,8 @@
 name: CI
 
+permissions:
+  contents: read
+
 on:
   push:
     branches: [main, master]
@@ -12,7 +15,7 @@ concurrency:
 
 jobs:
   backend:
-    name: Backend (pytest + ruff)
+    name: Backend (ruff + pytest)
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -32,8 +35,16 @@ jobs:
           pip install -r requirements.txt
 
       - name: Ruff
-        run: ruff check . --output-format=github
-        continue-on-error: true
+        # Gate on modules we own tightly; full tree still has legacy noise
+        run: >
+          ruff check
+          api/
+          utils/
+          merkle/
+          graph_db/
+          parser/tree_sitter_parser.py
+          tests/
+          --output-format=github
 
       - name: Pytest
         env:
@@ -42,9 +53,8 @@ jobs:
           NEO4J_USER: neo4j
           NEO4J_PASSWORD: password
         run: pytest tests/ -v --tb=short -q
-
   frontend:
-    name: Frontend (lint + test)
+    name: Frontend (lint + tsc + test)
     runs-on: ubuntu-latest
     defaults:
       run:

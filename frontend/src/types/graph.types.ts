@@ -71,25 +71,26 @@ export function isValidNodeType(value: unknown): value is NodeType {
 
 export type ValidNodeType = typeof NODE_TYPE_VALUES[number];
 
+/** Matches backend RelationshipType enum string values (lowercase). */
 export type RelationshipType =
-    | 'CONTAINS'
-    | 'IMPORTS'
-    | 'CALLS'
-    | 'INSTANTIATES'
-    | 'INHERITS'
-    | 'DECORATES'
-    | 'DEFINES'
-    | 'USES';
+    | 'contains'
+    | 'imports'
+    | 'calls'
+    | 'instantiates'
+    | 'inherits'
+    | 'decorates'
+    | 'defines'
+    | 'uses';
 
 export const RELATIONSHIP_TYPE_VALUES = [
-    'CONTAINS',
-    'IMPORTS',
-    'CALLS',
-    'INSTANTIATES',
-    'INHERITS',
-    'DECORATES',
-    'DEFINES',
-    'USES',
+    'contains',
+    'imports',
+    'calls',
+    'instantiates',
+    'inherits',
+    'decorates',
+    'defines',
+    'uses',
 ] as const satisfies ReadonlyArray<RelationshipType>;
 
 export interface GraphNode {

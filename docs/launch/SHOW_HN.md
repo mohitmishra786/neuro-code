@@ -3,13 +3,13 @@
 **Suggested window:** Tuesday–Thursday, 8:00–10:00 America/New_York  
 **Title:**
 
-```
+```text
 Show HN: NeuroCode – hierarchical knowledge graph for local Python codebases
 ```
 
 **Body:**
 
-```
+```text
 I built NeuroCode for the “I just joined a huge Python monorepo” problem.
 
 It parses a Python project with Tree-sitter, stores packages/classes/calls in Neo4j,
@@ -35,7 +35,7 @@ Feedback welcome—especially setup pain and whether CALLS/INHERITS edges match 
 
 **First comment:**
 
-```
+```text
 Maintainer here for the next ~2h.
 
 GIF/diagram: see README hero.

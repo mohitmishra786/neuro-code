@@ -49,7 +49,7 @@ python scripts/benchmark.py /path/to/python/project
 
 ### Template for new runs
 
-```
+```text
 Date:
 Commit:
 Hardware:

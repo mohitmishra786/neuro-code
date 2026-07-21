@@ -109,7 +109,7 @@
 
 ## Commits (traceability)
 
-```
+```text
 [audit:02] Add MIT LICENSE, SECURITY.md, CI, and Dependabot
 [audit:01] Position NeuroCode: persona, ReactFlow stack truth, README SEO
 [audit:04] One-command first graph: demo package, make demo, Neo4j 5.26

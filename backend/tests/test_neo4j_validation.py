@@ -7,8 +7,9 @@ connect() is graceful: returns False on bad config / auth failure (does not rais
 
 from __future__ import annotations
 
-import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
+
+import pytest
 
 from graph_db.neo4j_client import Neo4jClient
 from utils.config import Neo4jSettings
@@ -18,7 +19,7 @@ class TestNeo4jCredentialValidation:
     """Test cases for Neo4j credential validation."""
 
     @pytest.fixture
-    def mock_driver(self):
+    def mock_driver(self) -> MagicMock:
         """Create a mock Neo4j driver."""
         driver = MagicMock()
         driver.verify_connectivity = AsyncMock()
@@ -82,7 +83,7 @@ class TestNeo4jCredentialValidation:
             assert await client.connect() is False
 
     @pytest.mark.asyncio
-    async def test_connect_with_valid_credentials_succeeds(self, mock_driver) -> None:
+    async def test_connect_with_valid_credentials_succeeds(self, mock_driver: MagicMock) -> None:
         settings = Neo4jSettings(
             uri="bolt://localhost:7687",
             user="neo4j",
@@ -99,7 +100,7 @@ class TestNeo4jCredentialValidation:
             mock_driver.verify_connectivity.assert_called_once()
 
     @pytest.mark.asyncio
-    async def test_connect_with_auth_failure_returns_false(self, mock_driver) -> None:
+    async def test_connect_with_auth_failure_returns_false(self, mock_driver: MagicMock) -> None:
         settings = Neo4jSettings(
             uri="bolt://localhost:7687",
             user="neo4j",
@@ -119,7 +120,7 @@ class TestNeo4jCredentialValidation:
             mock_driver.close.assert_called()
 
     @pytest.mark.asyncio
-    async def test_connect_on_auth_failure_closes_driver(self, mock_driver) -> None:
+    async def test_connect_on_auth_failure_closes_driver(self, mock_driver: MagicMock) -> None:
         settings = Neo4jSettings(
             uri="bolt://localhost:7687",
             user="neo4j",
@@ -139,7 +140,7 @@ class TestNeo4jCredentialValidation:
             mock_driver.close.assert_called_once()
 
     @pytest.mark.asyncio
-    async def test_multiple_connect_calls_reuse_driver(self, mock_driver) -> None:
+    async def test_multiple_connect_calls_reuse_driver(self, mock_driver: MagicMock) -> None:
         settings = Neo4jSettings(
             uri="bolt://localhost:7687",
             user="neo4j",

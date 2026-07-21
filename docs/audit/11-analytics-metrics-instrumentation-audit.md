@@ -18,7 +18,7 @@
 | CLI/parser telemetry | **None** | |
 | Backend metrics (Prometheus etc.) | **None found** | |
 | Error tracking | **None** (structlog only) | |
-| CI test pass rate | **No CI** | |
+| CI test pass rate | **CI present** (`.github/workflows/ci.yml` + security/lint workflows); track pass rate via Actions history | |
 
 **Bottom line:** You cannot currently distinguish “nobody cares” from “nobody can install.” That is an existential instrumentation gap for a pre-launch tool.
 

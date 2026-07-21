@@ -6,8 +6,8 @@ Requires Python 3.11+.
 """
 
 from graph_db.neo4j_client import Neo4jClient
-from graph_db.schema import GraphSchema
 from graph_db.queries import QueryLibrary
+from graph_db.schema import GraphSchema
 
 __all__ = [
     "Neo4jClient",

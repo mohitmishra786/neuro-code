@@ -8,11 +8,9 @@ Requires Python 3.11+.
 import hashlib
 import time
 from pathlib import Path
-from typing import Iterator
-from collections import deque
 
 import tree_sitter_python as tspython
-from tree_sitter import Language, Parser, Node, Tree
+from tree_sitter import Language, Node, Parser, Tree
 
 from parser.models import (
     ClassInfo,
@@ -25,7 +23,6 @@ from parser.models import (
     VariableInfo,
 )
 from utils.logger import LoggerMixin
-from utils.config import get_settings
 
 
 class TreeSitterParser(LoggerMixin):

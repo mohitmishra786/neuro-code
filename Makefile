@@ -1,4 +1,4 @@
-.PHONY: demo up down parse-demo health test-backend test-frontend test lint
+.PHONY: demo up down parse-demo health test-backend test-frontend test lint check security type-check
 
 # Fastest path to a graph: start stack + parse examples/demo_pkg
 demo:
@@ -27,4 +27,16 @@ test: test-backend test-frontend
 
 lint:
 	cd backend && ruff check .
-	cd frontend && npm run lint && npm run type-check
+	cd frontend && npm run lint
+
+type-check:
+	cd frontend && npx tsc --noEmit -p tsconfig.app.json
+
+# Full local gate (mirrors CI primary jobs)
+check:
+	@chmod +x scripts/check.sh
+	./scripts/check.sh all
+
+security:
+	@chmod +x scripts/check.sh
+	./scripts/check.sh security

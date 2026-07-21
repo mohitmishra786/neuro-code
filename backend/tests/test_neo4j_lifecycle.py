@@ -4,9 +4,10 @@ Tests for Neo4jClient lifecycle and leak prevention.
 Verifies that Neo4j connections are properly managed and cleaned up.
 """
 
-import pytest
-from unittest.mock import AsyncMock, MagicMock, patch
 import asyncio
+from unittest.mock import AsyncMock, MagicMock
+
+import pytest
 
 
 class TestNeo4jClientLifecycle:

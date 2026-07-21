@@ -654,14 +654,16 @@ export const useTreeStore = create<TreeState>()(
     },
 
     onNodesChange: (changes: readonly NodeChange[]) => {
+        // Pass arrays without extra copy of nodes/edges so React Flow can
+        // reuse referential equality where possible (CodeRabbit perf note).
         set(state => ({
-            nodes: applyNodeChanges([...changes] as NodeChange[], [...state.nodes]),
+            nodes: applyNodeChanges(changes as NodeChange[], state.nodes as Node[]),
         }));
     },
 
     onEdgesChange: (changes: readonly EdgeChange[]) => {
         set(state => ({
-            edges: applyEdgeChanges([...changes] as EdgeChange[], [...state.edges]),
+            edges: applyEdgeChanges(changes as EdgeChange[], state.edges as Edge[]),
         }));
     },
 

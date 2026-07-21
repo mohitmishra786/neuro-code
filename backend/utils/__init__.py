@@ -6,7 +6,7 @@ Requires Python 3.11+.
 """
 
 from utils.config import Settings, get_settings
-from utils.logger import configure_logging, get_logger, logger, LoggerMixin
+from utils.logger import LoggerMixin, configure_logging, get_logger, logger
 
 __all__ = [
     "Settings",

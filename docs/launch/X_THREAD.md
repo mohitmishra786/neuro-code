@@ -8,7 +8,7 @@ Tree-sitter → Neo4j → React explorer.
 
 3/ Fastest path:
 
-```
+```bash
 git clone https://github.com/mohitmishra786/neuro-code
 cd neuro-code && make demo
 ```

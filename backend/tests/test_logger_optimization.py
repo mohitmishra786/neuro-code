@@ -4,8 +4,8 @@ Tests for Logger performance optimizations.
 Verifies that logging overhead is reduced through caching.
 """
 
+
 import pytest
-from unittest.mock import patch, MagicMock
 
 
 class TestLoggerOptimization:

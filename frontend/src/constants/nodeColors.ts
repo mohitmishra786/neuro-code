@@ -18,24 +18,24 @@ export const EDGE_STYLES: Record<
     string,
     { label: string; color: string; strokeDasharray?: string; description: string }
 > = {
-    CONTAINS: {
+    contains: {
         label: 'Contains',
         color: '#94a3b8',
         description: 'Hierarchy (package → module → class → function)',
     },
-    CALLS: {
+    calls: {
         label: 'Calls',
         color: '#f59e0b',
         strokeDasharray: '6 4',
         description: 'Function / method calls',
     },
-    IMPORTS: {
+    imports: {
         label: 'Imports',
         color: '#6366f1',
         strokeDasharray: '2 4',
         description: 'Import relationships',
     },
-    INHERITS: {
+    inherits: {
         label: 'Inherits',
         color: '#10b981',
         description: 'Class inheritance',

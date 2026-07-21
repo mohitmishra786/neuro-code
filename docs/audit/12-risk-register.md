@@ -35,7 +35,7 @@ Risk management is **implicit only**. No SECURITY.md, no bus-factor docs, no lau
 | R16 | **Python-only vs multi-lang expectations** | M | M | 1 | Position as Python-first depth | Maintainer (Product) |
 | R17 | **Category competition (CodeLayers, VS Code tools, Sourcegraph)** | H | M | 1 | Differentiate local hierarchical + Neo4j ownership | Maintainer (Product/Growth) |
 | R18 | **Show HN without demo** → flat launch, hard to re-do | M | H | 6, 7, 8 | Gate launch on Artifact 7 Phase D | Maintainer (Growth) |
-| R19 | **React 18 / Neo4j 5.15 / FastAPI pin drift** | M | L–M | 2 | Track LTS; upgrade after launch | Maintainer (Eng) |
+| R19 | **React 18 / FastAPI pin drift** (Neo4j image pinned to **5.26-community** LTS — mitigated for Neo4j) | M | L–M | 2 | Track React 19 / FastAPI upgrades after launch | Maintainer (Eng) |
 | R20 | **No metrics → cannot learn** | H | M | 11, 9 | Metrics log + labels; opt-in later | Maintainer (Growth) |
 | R21 | **Name collision / weak brand “NeuroCode”** | M | L | 5 | Quick search; accept or rename early | Maintainer (Product) |
 | R22 | **Placeholder `your-org` URLs** → broken first clone | H | M | 1, 4 | Fix all references | Maintainer (Eng) |

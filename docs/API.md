@@ -1,7 +1,8 @@
 # NeuroCode API Documentation
 
 ## Base URL
-```
+
+```text
 http://localhost:8000
 ```
 
@@ -10,7 +11,10 @@ http://localhost:8000
 **Development / local-only:** no general authentication required.
 
 - Set `API_KEY` to require a Bearer token on destructive operations (`DELETE /graph/clear`).
-- `POST /graph/parse` is restricted to directories listed in `API_ALLOWED_PARSE_PATHS` (defaults to the process current working directory).
+- `POST /graph/parse` is restricted to directories listed in `API_ALLOWED_PARSE_PATHS`.
+  - When unset, the backend **defaults to the process current working directory** (`os.getcwd()` via settings).
+  - Prefer setting an explicit allowlist in any shared/deployed environment.
+- Rate limiting keys the **TCP peer address** by default. Set `API_TRUSTED_PROXIES` (IPs/CIDRs) only when behind a known reverse proxy before trusting `X-Forwarded-For`.
 - **Do not** expose this API on the public internet without additional auth and network controls.
 
 ---

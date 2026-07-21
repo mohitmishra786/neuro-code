@@ -11,7 +11,6 @@ from fastapi import HTTPException
 
 from graph_db.neo4j_client import Neo4jClient
 
-
 # Shared state - populated by main.py lifespan
 _state: dict[str, Any] = {}
 

@@ -7,10 +7,7 @@ parallel processing, and retry logic.
 Requires Python 3.11+.
 """
 
-import asyncio
 import sys
-from pathlib import Path
-from unittest.mock import AsyncMock, MagicMock, patch
 
 CONFIG_CACHE_TESTS = """
 def test_config_caching():

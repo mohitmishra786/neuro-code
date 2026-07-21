@@ -4,9 +4,8 @@ Tests for Request ID Middleware.
 Verifies that request IDs are properly generated, propagated, and included in logs.
 """
 
-import pytest
-from fastapi.testclient import TestClient
 from fastapi import FastAPI
+from fastapi.testclient import TestClient
 
 
 class TestRequestIDMiddleware:

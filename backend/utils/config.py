@@ -136,7 +136,14 @@ class APISettings(BaseSettings):
     rate_limit_burst: int = Field(
         default=10,
         ge=1,
-        description="Burst allowance for rate limiting"
+        description="Burst allowance for rate limiting",
+    )
+    trusted_proxies: Annotated[list[str], NoDecode] = Field(
+        default_factory=list,
+        description=(
+            "Comma-separated IPs/CIDRs of reverse proxies trusted for "
+            "X-Forwarded-For / X-Real-IP. Empty = never trust forwarded headers."
+        ),
     )
 
     @field_validator("cors_origins", mode="before")
@@ -145,6 +152,14 @@ class APISettings(BaseSettings):
         """Parse CORS origins from comma-separated string or list."""
         if isinstance(v, str):
             return [o.strip() for o in v.split(",") if o.strip()]
+        return v
+
+    @field_validator("trusted_proxies", mode="before")
+    @classmethod
+    def parse_trusted_proxies(cls, v: str | list[str]) -> list[str]:
+        """Parse trusted proxy list from comma-separated string or list."""
+        if isinstance(v, str):
+            return [p.strip() for p in v.split(",") if p.strip()]
         return v
 
 

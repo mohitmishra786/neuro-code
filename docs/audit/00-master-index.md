@@ -21,7 +21,8 @@
 NeuroCode is a self-hosted Python hierarchical code graph (Tree-sitter → Neo4j → ReactFlow), but GitHub/README lack a persona, pitch, topics, and correct stack claims (Sigma is wrong). Sourcetrail’s gap remains; CodeSee is gone into GitKraken; 2026 competitors push 3D, VS Code, and AI/MCP—NeuroCode’s wedge is local, Python-deep hierarchy. Launch around engineers onboarding to large Python codebases.
 
 ### 2 — Development & Technical Health
-Solid modular layout and tests exist, but **no CI in tree**, performance numbers are **aspirational**, and **123 open issues are agent-generated tech-debt**, not community demand (1 Dependabot PR). React 18 / Neo4j 5.15 / FastAPI pins lag 2026 baselines; LICENSE/SECURITY files missing; API is dev-mode open.
+*(Historical at audit time — superseded by implementation on `audit/pre-launch-implementation`.)*  
+Solid modular layout and tests existed; CI/LICENSE/SECURITY and Neo4j **5.26** LTS were added post-audit. Agent issue backlog was bulk-closed; real work tracked in human issues.
 
 ### 3 — UI Design
 Frontend has a real dark-default token system and typed node colors, but **zero screenshots/GIFs**—fatal for a visualization product. Inferable UX is hierarchical ReactFlow circles + sidebar; polish/a11y issues remain open. Ship visual proof first.

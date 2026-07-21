@@ -5,22 +5,21 @@ REST endpoints for graph operations.
 Requires Python 3.11+.
 """
 
-import os
 from pathlib import Path
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException, Query, BackgroundTasks, Security
-from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, Security
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel, Field, field_validator
 
 from api.dependencies import require_neo4j_client
-from graph_db.neo4j_client import Neo4jClient
-from parser.tree_sitter_parser import TreeSitterParser
-from parser.relationship_extractor import RelationshipExtractor
-from merkle.change_detector import ChangeDetector
-from utils.logger import get_logger
-from utils.config import get_settings
 from api.path_security import validate_parse_directory
+from graph_db.neo4j_client import Neo4jClient
+from merkle.change_detector import ChangeDetector
+from parser.relationship_extractor import RelationshipExtractor
+from parser.tree_sitter_parser import TreeSitterParser
+from utils.config import get_settings
+from utils.logger import get_logger
 
 router = APIRouter()
 logger = get_logger("api.graph")
@@ -785,10 +784,10 @@ async def get_project_tree(
         raise HTTPException(status_code=404, detail="Path not found")
         
     try:
-        # We can reuse the existing _parser. 
+        # We can reuse the existing _parser.
         # Note: This does a fresh parse. For a persistent DB approach,
-        # we would query Neo4j, but fitting the Neo4j flat records back into 
-        # a tree is complex. Since tree-sitter is fast, we parse on demand 
+        # we would query Neo4j, but fitting the Neo4j flat records back into
+        # a tree is complex. Since tree-sitter is fast, we parse on demand
         # for the visualizer for now.
         
         # Discover files
@@ -816,8 +815,8 @@ async def get_project_tree(
                 continue
                 
         # Build Tree
-        from parser.tree_builder import TreeBuilder
         from parser.models import ParseResult
+        from parser.tree_builder import TreeBuilder
         
         # We pass empty relationships list as we only need structure for the tree view
         # Relationships are fetched on demand or we could add them to the tree
