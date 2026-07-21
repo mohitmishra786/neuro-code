@@ -37,7 +37,7 @@ jobs:
       - name: Ruff
         # Gate on modules we own tightly; full tree still has legacy noise
         run: >
-          ruff check
+          python -m ruff check
           api/
           utils/
           merkle/
@@ -46,6 +46,19 @@ jobs:
           tests/
           --output-format=github
 
+      - name: Mypy (advisory)
+        # Strict mypy is repo policy; full tree still has pre-existing type debt.
+        # Report only — do not block merge until debt is paid down.
+        continue-on-error: true
+        run: >
+          python -m mypy
+          api/
+          utils/
+          merkle/
+          graph_db/
+          parser/tree_sitter_parser.py
+          --config-file pyproject.toml
+
       - name: Pytest
         env:
           ENVIRONMENT: development
@@ -53,6 +66,7 @@ jobs:
           NEO4J_USER: neo4j
           NEO4J_PASSWORD: password
         run: pytest tests/ -v --tb=short -q
+
   frontend:
     name: Frontend (lint + tsc + test)
     runs-on: ubuntu-latest

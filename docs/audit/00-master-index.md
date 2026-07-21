@@ -4,6 +4,13 @@
 **Repo:** local `neuro-code` / remote `mohitmishra786/neuro-code`  
 **Artifacts:** `docs/audit/01` … `12` + this index  
 
+> **Post-implementation status (branch `audit/pre-launch-implementation`):**  
+> Most code/config findings below were **implemented** after the audit was written.  
+> Treat Artifacts 01–12 as the **original diagnostic**; treat
+> [`IMPLEMENTATION_LOG.md`](./IMPLEMENTATION_LOG.md) as the **current truth** for
+> what shipped. Summaries marked *(historical)* keep the original wording for
+> context; do not re-open closed work from those lines alone.
+
 ---
 
 ## How to use this pack
@@ -12,41 +19,48 @@
 2. Use **Artifact 12** when prioritizing under time pressure.  
 3. Execute the **90-day action queue** below in order unless a dependency blocks you.  
 4. Do not monetize (Artifact 10) until Stage 0 gates.  
+5. For “is X still open?” check **IMPLEMENTATION_LOG** and open GitHub issues first.
 
 ---
 
 ## 2–3 line summaries (Artifacts 1–12)
 
 ### 1 — Product Positioning & Market Analysis
-NeuroCode is a self-hosted Python hierarchical code graph (Tree-sitter → Neo4j → ReactFlow), but GitHub/README lack a persona, pitch, topics, and correct stack claims (Sigma is wrong). Sourcetrail’s gap remains; CodeSee is gone into GitKraken; 2026 competitors push 3D, VS Code, and AI/MCP—NeuroCode’s wedge is local, Python-deep hierarchy. Launch around engineers onboarding to large Python codebases.
+*(Partially historical — README persona, ReactFlow stack truth, GitHub topics landed post-audit.)*  
+NeuroCode is a self-hosted Python hierarchical code graph (Tree-sitter → Neo4j → ReactFlow). Sourcetrail’s gap remains; CodeSee is gone into GitKraken; 2026 competitors push 3D, VS Code, and AI/MCP—NeuroCode’s wedge is local, Python-deep hierarchy. Launch around engineers onboarding to large Python codebases.
 
 ### 2 — Development & Technical Health
 *(Historical at audit time — superseded by implementation on `audit/pre-launch-implementation`.)*  
-Solid modular layout and tests existed; CI/LICENSE/SECURITY and Neo4j **5.26** LTS were added post-audit. Agent issue backlog was bulk-closed; real work tracked in human issues.
+Solid modular layout and tests existed; CI/LICENSE/SECURITY, lint/security workflows, and Neo4j **5.26** LTS were added post-audit. Agent issue backlog was bulk-closed; real work tracked in human issues (#222–#225).
 
 ### 3 — UI Design
-Frontend has a real dark-default token system and typed node colors, but **zero screenshots/GIFs**—fatal for a visualization product. Inferable UX is hierarchical ReactFlow circles + sidebar; polish/a11y issues remain open. Ship visual proof first.
+*(Partially historical — legend, empty CTA, a11y polish landed; live session GIF still open.)*  
+Frontend has a real dark-default token system and typed node colors; **live screenshots/GIFs** remain the main visual gap for a visualization product. Inferable UX is hierarchical ReactFlow circles + sidebar. Ship visual proof first (issue #223).
 
 ### 4 — UX / User Workflow
-README documents a **7-step, multi-terminal** path before first graph; Docker Compose can reduce this but isn’t productized with a demo dataset. Competitors offer seconds-to-value explore links or VS Code installs. Target **&lt;10 minutes** via `make demo` + examples package.
+*(Partially historical — `make demo` + `examples/demo_pkg` landed.)*  
+Activation path is now `make demo` targeting &lt;10 minutes to first graph. Docker Compose full-stack packaging remains future work (#225). Competitors still offer seconds-to-value explore links or VS Code installs.
 
 ### 5 — SEO & Organic Discoverability
-GitHub description/topics/homepage are empty; docs are unhosted markdown; no `llms.txt` or Awesome-list backlinks. 2026 discovery still needs topics + README keywords, plus AI-era `llms.txt` on a docs host. Keyword hypotheses need tool validation (e.g. “Sourcetrail alternative,” “python codebase visualization”).
+*(Partially historical — GitHub topics, README keywords, in-repo `llms.txt` landed.)*  
+Docs remain unhosted markdown; Awesome-list backlinks not submitted. Keyword hypotheses still need tool validation (e.g. “Sourcetrail alternative,” “python codebase visualization”).
 
 ### 6 — Marketing & Content
-No channels or assets yet. Primary launch surface is **Show HN (Tue–Thu ~8–10am ET)** with GIF + honest limits; content engine should be “Architecture in Graph” series on famous Python repos. Marketing is blocked until setup and visuals exist.
+*(Partially historical — launch drafts under `docs/launch/` exist; no public post yet.)*  
+Primary launch surface is **Show HN (Tue–Thu ~8–10am ET)** with GIF + honest limits; content engine should be “Architecture in Graph” series on famous Python repos. Marketing is blocked until human authorizes publish + visuals.
 
 ### 7 — Pre-Launch Checklist
-Sequenced phases A–E: positioning → tech floor/issue triage → activation → proof/assets → optional warm-up. **Do not publicly launch before Phase D exit criteria.**
+Sequenced phases A–E: positioning → tech floor/issue triage → activation → proof/assets → optional warm-up. **Do not publicly launch before Phase D exit criteria.** Implementation advanced A–C; D/E need human (tag, GIF, publish).
 
 ### 8 — Launch Day Checklist
-Hour-by-hour Show HN plan, reply discipline, channel order, monitoring without product analytics, hotfix tags, and a script for “why so many issues?” scrutiny.
+Hour-by-hour Show HN plan, reply discipline, channel order, monitoring without product analytics, hotfix tags, and a script for “why so many issues?” scrutiny (runbook updated post-triage).
 
 ### 9 — Post-Launch Checklist
-30/60/90-day cadence: SLA, content, activation bets, strategy review. Iterate on setup failure rate, not stars alone.
+30/60/90-day cadence: SLA, content, activation bets, strategy review. Iterate on setup failure rate, not stars alone. Governance docs (CODE_OF_CONDUCT, CONTRIBUTING) landed post-audit.
 
 ### 10 — Monetization & Sustainability
-**Premature to monetize at 0 stars.** Architecture fits future hosted single-tenant SaaS; for 90 days prioritize adoption + LICENSE only; Sponsors then Cloud then open-core after usage gates.
+*(Partially historical — MIT LICENSE + Stage 0 monetization note landed.)*  
+**Premature to monetize at low adoption.** Architecture fits future hosted single-tenant SaaS; for 90 days prioritize adoption; Sponsors then Cloud then open-core after usage gates.
 
 ### 11 — Analytics & Instrumentation
 Nothing product-side is instrumented. Use GitHub Traffic + issue labels immediately; optional opt-in CLI telemetry later; North Star proxy = clones + inverse setup-issue rate, aspirational WARP.

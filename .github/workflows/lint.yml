@@ -34,7 +34,7 @@ jobs:
       - name: Ruff check (primary modules)
         # Match CI scope — full tree still has legacy style debt
         run: >
-          ruff check
+          python -m ruff check
           api/
           utils/
           merkle/
@@ -42,7 +42,35 @@ jobs:
           parser/tree_sitter_parser.py
           tests/
       - name: Ruff format (check only, advisory)
-        run: ruff format --check . || true
+        run: python -m ruff format --check . || true
+
+  backend-mypy:
+    name: Backend Mypy (advisory)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: backend/requirements.txt
+      - name: Install
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+      - name: Mypy (report-only)
+        continue-on-error: true
+        run: >
+          python -m mypy
+          api/
+          utils/
+          merkle/
+          graph_db/
+          parser/tree_sitter_parser.py
+          --config-file pyproject.toml
 
   frontend-eslint:
     name: Frontend ESLint
@@ -59,6 +87,23 @@ jobs:
           cache-dependency-path: frontend/package-lock.json
       - run: npm ci
       - run: npm run lint
+
+  frontend-tsc:
+    name: Frontend TypeScript
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm ci
+      - name: TypeScript (app sources)
+        run: npx tsc --noEmit -p tsconfig.app.json
 
   markdown:
     name: Markdown lint
@@ -81,3 +126,13 @@ jobs:
             "CHANGELOG.md" \
             || true
         # Non-blocking for historical audit docs; prefer fixing new files to pass
+
+  actionlint:
+    name: Workflow lint (actionlint)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install actionlint
+        run: bash <(curl --fail -sSL https://raw.githubusercontent.com/rhysd/actionlint/main/scripts/download-actionlint.bash)
+      - name: Check workflow files
+        run: ./actionlint -color

@@ -385,16 +385,19 @@ class ProjectParser(LoggerMixin):
     async def _discover_files_async(self) -> list[Path]:
         """
         Find all Python files asynchronously.
-        
-        Returns:
-            Sorted list of Python file paths
+
+        Same security rules as :meth:`_discover_files` (external symlink
+        rejection, ignore re-check on resolved path, original path kept).
         """
         import asyncio
-        
-        files = []
-        visited = set()
-        
+
+        files: list[Path] = []
+        visited: set[str] = set()
+        root_resolved = self.root.resolve(strict=False)
+
         def process_path(file_path: Path) -> Path | None:
+            if self._should_ignore(file_path):
+                return None
             try:
                 resolved = file_path.resolve(strict=False)
             except (OSError, RuntimeError) as e:
@@ -404,19 +407,19 @@ class ProjectParser(LoggerMixin):
                     error=str(e),
                 )
                 return None
-            
+
             canonical = str(resolved)
             if canonical in visited:
                 self.log.warning("skipping_symlink_cycle", path=canonical)
                 return None
-            
+
             visited.add(canonical)
-            
+
             if self._should_ignore(resolved):
                 return None
-            
+
             try:
-                resolved.relative_to(self.root)
+                resolved.relative_to(root_resolved)
             except ValueError:
                 self.log.warning(
                     "skipping_external_symlink",
@@ -424,17 +427,17 @@ class ProjectParser(LoggerMixin):
                     target=str(resolved),
                 )
                 return None
-            
+
             return file_path
-        
+
         loop = asyncio.get_event_loop()
-        
+
         for file_path in self.root.rglob("*.py"):
             result = await loop.run_in_executor(None, process_path, file_path)
             if result:
                 files.append(result)
-        
-        return sorted(files)
+
+        return sorted(files, key=lambda p: str(p))
     
     async def _pass2_local_ast_async(self, files: list[Path]) -> None:
         """
