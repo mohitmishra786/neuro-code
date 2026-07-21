@@ -8,8 +8,8 @@ from pathlib import Path
 
 import pytest
 
-from parser.tree_sitter_parser import TreeSitterParser
 from merkle.hash_calculator import HashCalculator
+from parser.tree_sitter_parser import TreeSitterParser
 
 
 class TestHashCalculator:

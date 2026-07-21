@@ -5,20 +5,20 @@ FastAPI application with CORS, error handling, rate limiting, and lifecycle mana
 Requires Python 3.11+.
 """
 
+from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
-from typing import Any, AsyncIterator
+from typing import Any
 
-from fastapi import FastAPI, Request, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
-from api.dependencies import set_neo4j_client, get_neo4j_client
+from api.dependencies import get_neo4j_client, set_neo4j_client
+from api.middleware.rate_limit import rate_limit
 from api.middleware.request_id import RequestIDMiddleware
-from api.middleware.rate_limit import RateLimitMiddleware, rate_limit
 from graph_db.neo4j_client import Neo4jClient
 from utils.config import get_settings
 from utils.logger import configure_logging, get_logger
-
 
 # Initialize logging
 configure_logging()

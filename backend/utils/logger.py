@@ -6,7 +6,6 @@ Requires Python 3.11+.
 """
 
 import logging
-import re
 import sys
 from typing import Any
 
@@ -14,7 +13,6 @@ import structlog
 from structlog.types import Processor
 
 from utils.config import get_settings
-
 
 _sensitive_keys = {"password", "token", "secret", "api_key", "private_key", "access_token", "refresh_token", "credentials", "auth"}
 

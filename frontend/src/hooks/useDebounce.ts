@@ -4,6 +4,8 @@
  * Debounces a value for reducing update frequency.
  */
 
+import { useEffect, useState } from 'react';
+
 /**
  * Debounce a value with type safety.
  * @typeParam T - The type of value to debounce

@@ -35,19 +35,20 @@ interface NeuroCacheDB extends DBSchema {
     };
 }
 
-const DB_NAME = 'neurocode-cache';
-const DB_VERSION = 2; // Incremented for schema changes
-const CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
-const MAX_CACHE_SIZE = 10000; // Maximum number of nodes to cache
-const MAX_CHILDREN_CACHE_SIZE = 1000; // Maximum number of children entries
+export const DB_NAME = 'neurocode-cache';
+export const DB_VERSION = 2; // Incremented for schema changes
+export const CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
+export const MAX_CACHE_SIZE = 10000; // Maximum number of nodes to cache
+export const MAX_CHILDREN_CACHE_SIZE = 1000; // Maximum number of children entries
+export const MAX_ACCESS_TRACKING = MAX_CACHE_SIZE + 1000;
 
 class CacheService {
     private db: IDBPDatabase<NeuroCacheDB> | null = null;
     private initPromise: Promise<void> | null = null;
 
-    // LRU tracking for eviction
-    private accessOrder: string[] = [];
-    private readonly MAX_ACCESS_TRACKING = MAX_CACHE_SIZE + 1000;
+    // LRU tracking for eviction (public for tests)
+    accessOrder: string[] = [];
+    readonly MAX_ACCESS_TRACKING = MAX_ACCESS_TRACKING;
 
     async init(): Promise<void> {
         if (this.db) return;
@@ -59,11 +60,12 @@ class CacheService {
 
     private async openDatabase(): Promise<void> {
         this.db = await openDB<NeuroCacheDB>(DB_NAME, DB_VERSION, {
-            upgrade(db, oldVersion, newVersion, transaction) {
+            upgrade(db, oldVersion, _newVersion, _transaction) {
                 if (oldVersion < 2) {
-                    db.deleteObjectStore('nodes');
-                    db.deleteObjectStore('children');
-                    db.deleteObjectStore('metadata');
+                    // Recreate stores on schema bump
+                    if (db.objectStoreNames.contains('nodes')) db.deleteObjectStore('nodes');
+                    if (db.objectStoreNames.contains('children')) db.deleteObjectStore('children');
+                    if (db.objectStoreNames.contains('metadata')) db.deleteObjectStore('metadata');
                 }
 
                 const nodesStore = db.createObjectStore('nodes', { keyPath: 'node.id' });
@@ -93,7 +95,7 @@ class CacheService {
         }
     }
 
-    private async evictIfNeeded(): Promise<void> {
+    async evictIfNeeded(): Promise<void> {
         if (!this.db) return;
 
         const stats = await this.getStatsInternal();
@@ -276,7 +278,6 @@ class CacheService {
         if (!this.db) return 0;
 
         let clearedCount = 0;
-        const now = Date.now();
 
         const nodesTx = this.db.transaction('nodes', 'readwrite');
         let nodesCursor = await nodesTx.store.openCursor();
@@ -315,7 +316,6 @@ class CacheService {
         ]);
 
         let staleCount = 0;
-        const now = Date.now();
         const nodesTx = this.db.transaction('nodes', 'readonly');
         let nodesCursor = await nodesTx.store.openCursor();
         while (nodesCursor) {

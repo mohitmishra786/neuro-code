@@ -9,7 +9,7 @@ import re
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from pydantic import BaseModel, field_validator
+from pydantic import BaseModel, ValidationError, field_validator
 
 from api.dependencies import require_neo4j_client
 from graph_db.neo4j_client import Neo4jClient
@@ -83,39 +83,33 @@ class SearchResponse(BaseModel):
     total: int
 
 
-@router.post("", response_model=SearchResponse)
-async def search_nodes(
+async def _run_search(
     request: SearchQuery,
-    client: Neo4jClient = Depends(require_neo4j_client),
+    client: Neo4jClient,
 ) -> SearchResponse:
-    """
-    Full-text search across all node names.
-
-    Uses fuzzy matching to find nodes by name or qualified name.
-    Target latency: <200ms
-    """
-    logger.debug("search_requested", query=request.query, limit=request.limit, type_filter=request.type_filter)
+    """Shared search implementation for GET and POST."""
+    logger.debug(
+        "search_requested",
+        query=request.query,
+        limit=request.limit,
+        type_filter=request.type_filter,
+    )
 
     try:
-        # Escape special characters for Lucene query
         escaped_query = request.query.replace("~", "\\~").replace("*", "\\*")
-
         results = await client.search_nodes(escaped_query, limit=request.limit * 2)
 
-        # Filter by type if specified
         if request.type_filter:
             type_filter = request.type_filter.lower()
-            valid_types = {"module", "class", "function", "variable"}
+            valid_types = {"module", "class", "function", "variable", "package"}
             if type_filter not in valid_types:
                 raise HTTPException(
                     status_code=400,
-                    detail=f"Invalid type filter. Must be one of: {', '.join(valid_types)}"
+                    detail=f"Invalid type filter. Must be one of: {', '.join(sorted(valid_types))}",
                 )
             results = [r for r in results if r.get("type") == type_filter]
 
-        # Limit results
-        results = results[:request.limit]
-
+        results = results[: request.limit]
         search_results = [
             SearchResult(
                 id=r["id"],
@@ -135,13 +129,40 @@ async def search_nodes(
             total=len(search_results),
         )
 
+    except HTTPException:
+        raise
     except ValueError as e:
-        # Validation errors from SearchQuery
         logger.warning("search_validation_failed", query=request.query, error=str(e))
-        raise HTTPException(status_code=400, detail=str(e))
+        raise HTTPException(status_code=422, detail=str(e)) from e
     except Exception as e:
         logger.error("search_failed", query=request.query, error=str(e))
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=str(e)) from e
+
+
+@router.get("", response_model=SearchResponse)
+async def search_nodes_get(
+    q: str = Query(..., description="Search query"),
+    limit: int = Query(default=50, ge=1, le=200),
+    type_filter: str | None = Query(default=None),
+    client: Neo4jClient = Depends(require_neo4j_client),
+) -> SearchResponse:
+    """
+    Full-text search (GET). Query param ``q`` matches docs and frontend conventions.
+    """
+    try:
+        request = SearchQuery(query=q, limit=limit, type_filter=type_filter)
+    except ValidationError as e:
+        raise HTTPException(status_code=422, detail=e.errors()) from e
+    return await _run_search(request, client)
+
+
+@router.post("", response_model=SearchResponse)
+async def search_nodes_post(
+    request: SearchQuery,
+    client: Neo4jClient = Depends(require_neo4j_client),
+) -> SearchResponse:
+    """Full-text search (POST body)."""
+    return await _run_search(request, client)
 
 
 @router.get("/suggest")

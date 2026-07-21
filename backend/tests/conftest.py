@@ -6,11 +6,10 @@ Requires Python 3.11+.
 """
 
 import asyncio
+from collections.abc import Generator
 from pathlib import Path
-from typing import AsyncGenerator, Generator
 
 import pytest
-import pytest_asyncio
 
 
 @pytest.fixture(scope="session")

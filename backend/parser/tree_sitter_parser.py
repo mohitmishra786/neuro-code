@@ -5,13 +5,12 @@ Fast, incremental parsing of Python source files using Tree-sitter.
 Requires Python 3.11+.
 """
 
+import hashlib
 import time
 from pathlib import Path
-from typing import Iterator
-from collections import deque
 
 import tree_sitter_python as tspython
-from tree_sitter import Language, Parser, Node, Tree
+from tree_sitter import Language, Node, Parser, Tree
 
 from parser.models import (
     ClassInfo,
@@ -24,7 +23,6 @@ from parser.models import (
     VariableInfo,
 )
 from utils.logger import LoggerMixin
-from utils.config import get_settings
 
 
 class TreeSitterParser(LoggerMixin):
@@ -43,10 +41,13 @@ class TreeSitterParser(LoggerMixin):
         """
         self._language = Language(tspython.language())
         self._parser = Parser(self._language)
-        
-        # Set maximum recursion depth to prevent stack overflow on deeply nested code
-        self._parser.set_max_depth(max_depth)
-        
+
+        # Older tree-sitter Python bindings exposed set_max_depth; 0.26+ does not.
+        # Keep an application-level max for our own recursive walks.
+        set_max = getattr(self._parser, "set_max_depth", None)
+        if callable(set_max):
+            set_max(max_depth)
+
         self._source: bytes = b""
         self._tree: Tree | None = None
         self._max_depth = max_depth
@@ -70,6 +71,7 @@ class TreeSitterParser(LoggerMixin):
             return ModuleInfo(path=file_path, name=file_path.stem)
 
         module = self.parse_content(content, file_path)
+        self._assign_hierarchical_ids(module, file_path)
         elapsed_ms = (time.perf_counter() - start_time) * 1000
         self.log.debug(
             "parsed_file",
@@ -79,6 +81,45 @@ class TreeSitterParser(LoggerMixin):
             functions=len(module.functions),
         )
         return module
+
+    def _assign_hierarchical_ids(self, module: ModuleInfo, file_path: Path) -> None:
+        """
+        Assign stable hierarchical IDs used as Neo4j node keys.
+
+        Format: ``path::Class::method`` (AGENTS.md convention).
+        """
+        file_key = str(file_path).replace("\\", "/")
+        module.id = file_key
+        if not module.qualified_name:
+            module.qualified_name = module.name or file_path.stem
+
+        for imp in module.imports:
+            if not imp.id:
+                imp.id = f"{file_key}::import::{imp.module_name or 'unknown'}"
+
+        for var in module.variables:
+            if not var.id:
+                var.id = f"{file_key}::{var.name}"
+
+        for func in module.functions:
+            if not func.id:
+                func.id = f"{file_key}::{func.name}"
+
+        def walk_class(cls: ClassInfo, prefix: str) -> None:
+            if not cls.id:
+                cls.id = f"{prefix}::{cls.name}"
+            class_prefix = cls.id
+            for method in cls.methods:
+                if not method.id:
+                    method.id = f"{class_prefix}::{method.name}"
+            for var in getattr(cls, "all_variables", []) or []:
+                if not var.id:
+                    var.id = f"{class_prefix}::{var.name}"
+            for nested in cls.nested_classes:
+                walk_class(nested, class_prefix)
+
+        for cls in module.classes:
+            walk_class(cls, file_key)
 
     def _read_file_with_encoding(self, file_path: Path) -> bytes:
         """
@@ -132,17 +173,21 @@ class TreeSitterParser(LoggerMixin):
 
         return None
 
-    def parse_content(self, content: bytes, file_path: Path | None = None) -> ModuleInfo:
+    def parse_content(
+        self, content: bytes | str, file_path: Path | None = None
+    ) -> ModuleInfo:
         """
         Parse Python content and extract all code elements.
 
         Args:
-            content: Python source code as bytes
+            content: Python source code as bytes or str (str is UTF-8 encoded)
             file_path: Optional path for the module
 
         Returns:
             ModuleInfo containing all parsed elements
         """
+        if isinstance(content, str):
+            content = content.encode("utf-8")
         self._source = content
         self._tree = self._parser.parse(content)
 
@@ -253,23 +298,28 @@ class TreeSitterParser(LoggerMixin):
     def _parse_from_import(self, node: Node) -> ImportInfo:
         """Parse a from-import statement (from x import y, z)."""
         info = ImportInfo(location=self._get_location(node))
+        module_set = False
 
         for child in node.children:
-            if child.type == "dotted_name":
-                info.module_name = self._get_text(child)
-            elif child.type == "relative_import":
-                # Count dots for relative level
+            if child.type == "relative_import":
                 for sub in child.children:
                     if sub.type == "import_prefix":
                         info.relative_level = self._get_text(sub).count(".")
                         info.is_relative = True
-                    elif sub.type == "dotted_name":
+                    elif sub.type == "dotted_name" and not module_set:
                         info.module_name = self._get_text(sub)
+                        module_set = True
             elif child.type == "import_prefix":
                 info.relative_level = self._get_text(child).count(".")
                 info.is_relative = True
-            elif child.type in ("identifier", "dotted_name") and info.module_name:
-                # This is an imported name
+            elif child.type == "dotted_name" and not module_set:
+                # First dotted name is the module (from typing import …)
+                info.module_name = self._get_text(child)
+                module_set = True
+            elif child.type == "identifier" and module_set:
+                info.imported_names.append(self._get_text(child))
+            elif child.type == "dotted_name" and module_set:
+                # Rare: from pkg import nested.name
                 info.imported_names.append(self._get_text(child))
             elif child.type == "aliased_import":
                 name_node = child.child_by_field_name("name")
@@ -391,6 +441,9 @@ class TreeSitterParser(LoggerMixin):
                 info.variables = self._extract_local_variables(child)
                 # Check for yield/yield from
                 info.is_generator = self._has_yield(child)
+                # Content hash of body text for Merkle change detection
+                body_text = self._get_text(child)
+                info.body_hash = hashlib.sha256(body_text.encode("utf-8")).hexdigest()
 
         # Check for async
         if node.children and node.children[0].type == "async":

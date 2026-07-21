@@ -4,8 +4,6 @@ Tests for ProjectParser imports cleanup.
 Verifies that unused imports have been removed and the parser still works correctly.
 """
 
-import pytest
-from pathlib import Path
 
 
 class TestProjectParserImports:
@@ -13,8 +11,8 @@ class TestProjectParserImports:
 
     def test_imports_are_valid(self) -> None:
         """Verify all imports in project_parser are actually used."""
-        from parser.project_parser import ProjectParser
         from parser.models import ModuleInfo, PackageInfo, Relationship
+        from parser.project_parser import ProjectParser
 
         assert ProjectParser is not None
         assert ModuleInfo is not None
@@ -23,8 +21,9 @@ class TestProjectParserImports:
 
     def test_no_unused_iterator_import(self) -> None:
         """Verify Iterator import was removed (not needed)."""
-        import parser.project_parser as pp_module
         import typing
+
+        import parser.project_parser as pp_module
 
         has_iterator = hasattr(typing, 'Iterator')
         assert has_iterator, "Iterator should be available in typing"

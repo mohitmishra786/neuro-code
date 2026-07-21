@@ -6,16 +6,14 @@ Requires Python 3.11+.
 """
 
 import hashlib
-import json
 from functools import lru_cache
-from typing import Any
 
 from parser.models import (
     ClassInfo,
     FunctionInfo,
+    ImportInfo,
     ModuleInfo,
     VariableInfo,
-    ImportInfo,
 )
 from utils.logger import LoggerMixin
 

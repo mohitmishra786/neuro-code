@@ -84,3 +84,7 @@ neo4j-data/
 # Docker
 docker/data/
 vaak/
+
+# Local first_run runtime files
+.neurocode-*.pid
+.neurocode-*.log

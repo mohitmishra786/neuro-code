@@ -74,11 +74,37 @@ function CircleNodeComponent({ id, data, selected }: NodeProps<CircleNodeData>) 
         }
     }, [id, childCount, toggleNode]);
     
+    const title = [
+        label,
+        qualifiedName,
+        childCount > 0 ? `${childCount} children — double-click to expand` : null,
+        isAsync ? 'async' : null,
+        complexity != null ? `complexity ${complexity}` : null,
+    ]
+        .filter(Boolean)
+        .join(' · ');
+
     return (
-        <div 
+        <div
             className={`circle-node ${selected ? 'selected' : ''} ${isExpanded ? 'expanded' : ''}`}
             onClick={handleClick}
             onDoubleClick={handleDoubleClick}
+            onKeyDown={(e) => {
+                if (e.key === 'Enter' || e.key === ' ') {
+                    e.preventDefault();
+                    selectNode(id);
+                }
+                if ((e.key === 'Enter' && e.metaKey) || e.key === 'e' || e.key === 'E') {
+                    if (childCount > 0) {
+                        e.preventDefault();
+                        toggleNode(id);
+                    }
+                }
+            }}
+            role="button"
+            tabIndex={0}
+            title={title}
+            aria-label={title}
         >
             {/* Target handle at top */}
             <Handle

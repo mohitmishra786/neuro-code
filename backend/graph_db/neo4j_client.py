@@ -7,19 +7,24 @@ Requires Python 3.11+.
 
 import asyncio
 import json
+from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
-from datetime import datetime
-from typing import Any, AsyncIterator
-from uuid import UUID
+from typing import Any
 
-from neo4j import AsyncGraphDatabase, AsyncDriver, AsyncSession, AsyncTransaction
+from neo4j import AsyncDriver, AsyncGraphDatabase, AsyncSession
 from neo4j.exceptions import ServiceUnavailable, SessionExpired, TransientError
 
-from graph_db.schema import GraphSchema, NodeLabel, RelationshipLabel
-from parser.models import ModuleInfo, ClassInfo, FunctionInfo, VariableInfo, PackageInfo, Relationship
+from graph_db.schema import GraphSchema
+from parser.models import (
+    ClassInfo,
+    FunctionInfo,
+    ModuleInfo,
+    PackageInfo,
+    Relationship,
+    VariableInfo,
+)
 from utils.config import get_settings
-from utils.logger import LoggerMixin, _get_log_level
-
+from utils.logger import LoggerMixin
 
 _allowed_relationship_types = {
     "CONTAINS", "IMPORTS", "CALLS", "INSTANTIATES", "INHERITS",
@@ -75,13 +80,15 @@ class Neo4jClient(LoggerMixin):
     @classmethod
     async def close_all(cls) -> None:
         """Close all active Neo4j client instances to prevent leaks."""
+        from utils.logger import get_logger
+
         closed_count = 0
         for instance in list(cls._instances):
             if not instance._closed:
                 await instance.close()
                 closed_count += 1
         if closed_count > 0:
-            cls.log.info("closed_all_instances", count=closed_count)
+            get_logger("neo4j").info("closed_all_instances", count=closed_count)
 
     async def connect(self, timeout: float = 5.0) -> bool:
         """
@@ -121,19 +128,19 @@ class Neo4jClient(LoggerMixin):
 
             # Verify connectivity with timeout
             await asyncio.wait_for(self._driver.verify_connectivity(), timeout=timeout)
-            
+
             # Quick auth check
             async with self._driver.session(database=self._settings.database) as session:
                 await asyncio.wait_for(session.run("RETURN 1 as test"), timeout=timeout)
-        
+
             self.log.info(
                 "neo4j_connected",
                 uri=self._settings.uri,
                 database=self._settings.database,
             )
             return True
-            
-        except asyncio.TimeoutError:
+
+        except TimeoutError:
             self.log.warning("neo4j_connection_timeout", timeout=timeout)
             if self._driver:
                 await self._driver.close()
@@ -226,7 +233,7 @@ class Neo4jClient(LoggerMixin):
                     records = await result.data()
                     return records
 
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 self.log.warning(
                     "query_timeout",
                     attempt=attempt + 1,
@@ -299,7 +306,7 @@ class Neo4jClient(LoggerMixin):
                     "relationships_deleted": summary.counters.relationships_deleted,
                     "properties_set": summary.counters.properties_set,
                 }
-        except asyncio.TimeoutError:
+        except TimeoutError:
             self.log.error("query_timeout_exceeded", query=query[:100], timeout=timeout)
             raise TimeoutError(f"Query execution exceeded {timeout} seconds")
 
@@ -309,7 +316,7 @@ class Neo4jClient(LoggerMixin):
 
         Safe to call multiple times (uses IF NOT EXISTS).
         Creates constraints and indexes in parallel for faster initialization.
-        
+
         Raises:
             RuntimeError: If critical schema initialization fails
         """
@@ -317,10 +324,10 @@ class Neo4jClient(LoggerMixin):
 
         constraint_stmts = GraphSchema.get_constraint_creation_statements()
         index_stmts = GraphSchema.get_index_creation_statements()
-        
+
         constraint_errors = []
         index_errors = []
-        
+
         async def create_constraint(stmt: str) -> tuple[str, str | None]:
             """Create a single constraint."""
             try:
@@ -328,10 +335,17 @@ class Neo4jClient(LoggerMixin):
                 return (stmt, None)
             except Exception as e:
                 error_msg = str(e)
-                if "ConstraintAlreadyExists" not in error_msg and "Database not available" not in error_msg:
+                soft = (
+                    "ConstraintAlreadyExists" in error_msg
+                    or "EquivalentSchemaRuleAlreadyExists" in error_msg
+                    or "already exists" in error_msg.lower()
+                    or "Database not available" in error_msg
+                    or "Enterprise Edition" in error_msg
+                )
+                if not soft:
                     return (stmt, error_msg)
                 return (stmt, None)
-        
+
         async def create_index(stmt: str) -> tuple[str, str | None]:
             """Create a single index."""
             try:
@@ -342,13 +356,13 @@ class Neo4jClient(LoggerMixin):
                 if "IndexAlreadyExists" not in error_msg and "Database not available" not in error_msg:
                     return (stmt, error_msg)
                 return (stmt, None)
-        
+
         constraint_tasks = [create_constraint(stmt) for stmt in constraint_stmts]
         index_tasks = [create_index(stmt) for stmt in index_stmts]
-        
+
         all_tasks = constraint_tasks + index_tasks
         results = await asyncio.gather(*all_tasks, return_exceptions=True)
-        
+
         for result in results:
             if isinstance(result, Exception):
                 continue
@@ -594,7 +608,7 @@ class Neo4jClient(LoggerMixin):
             ValueError: If relationship type is not valid
         """
         rel_type = _validate_relationship_type(rel.relationship_type.value.upper())
-        
+
         prop_names = list(rel.properties.keys())
         prop_setters = "\n            ".join(f"r.{k} = ${k}" for k in prop_names)
 
@@ -604,7 +618,7 @@ class Neo4jClient(LoggerMixin):
         MERGE (source)-[r:{rel_type}]->(target)
         {f'SET {prop_setters}' if prop_setters else ''}
         """
-        
+
         params = {
             "source_id": str(rel.source_id),
             "target_id": str(rel.target_id),
@@ -626,7 +640,7 @@ class Neo4jClient(LoggerMixin):
         """
         for package in packages:
             await self.create_package(package)
-        
+
         self.log.info("bulk_packages_created", count=len(packages))
         return len(packages)
 
@@ -721,9 +735,9 @@ class Neo4jClient(LoggerMixin):
                node.docstring as docstring,
                child_count,
                node_type as type
-        
+
         UNION ALL
-        
+
         // Get orphan modules (modules not contained in any package)
         MATCH (m:Module)
         WHERE NOT EXISTS { (:Package)-[:CONTAINS]->(m) }
@@ -737,7 +751,7 @@ class Neo4jClient(LoggerMixin):
                node.docstring as docstring,
                child_count,
                node_type as type
-        
+
         ORDER BY type DESC, name
         """
         return await self.execute_query(query)
@@ -947,13 +961,13 @@ class Neo4jClient(LoggerMixin):
     async def expand_node(self, node_id: str) -> dict[str, Any]:
         """
         Get a node with all its outgoing connections for incremental loading.
-        
-        Returns the node, its direct children (via CONTAINS), 
+
+        Returns the node, its direct children (via CONTAINS),
         and outgoing edges (CALLS, IMPORTS, INHERITS).
-        
+
         Args:
             node_id: Hierarchical ID of the node to expand
-        
+
         Returns:
             Dictionary containing:
             - node: The expanded node
@@ -964,7 +978,7 @@ class Neo4jClient(LoggerMixin):
         query = """
         MATCH (n {id: $node_id})
         WITH n, labels(n) as node_labels
-        
+
         // Get children via CONTAINS with grandchild counts
         OPTIONAL MATCH (n)-[:CONTAINS]->(child)
         OPTIONAL MATCH (child)-[:CONTAINS]->(grandchild)
@@ -987,7 +1001,7 @@ class Neo4jClient(LoggerMixin):
             complexity: child.complexity,
             child_count: grandchild_count
         }) as children
-        
+
         // Get outgoing relationships (CALLS, IMPORTS, INHERITS)
         OPTIONAL MATCH (n)-[r]->(target)
         WHERE type(r) IN ['CALLS', 'IMPORTS', 'INHERITS', 'INSTANTIATES']
@@ -1005,43 +1019,43 @@ class Neo4jClient(LoggerMixin):
             edge_type: type(r),
             properties: properties(r)
         }) as outgoing
-        
+
         RETURN n as node,
                node_labels as labels,
                [c IN children WHERE c.id IS NOT NULL] as children,
                [o IN outgoing WHERE o.target_id IS NOT NULL] as outgoing
         """
         result = await self.execute_query(query, {"node_id": node_id})
-        
+
         if not result:
             return {"node": None, "children": [], "outgoing": [], "edges": []}
-        
+
         record = result[0]
         node_data = dict(record["node"]) if record["node"] else {}
         node_data["labels"] = record["labels"]
-        
+
         return {
             "node": node_data,
             "children": record["children"],
             "outgoing": record["outgoing"],
         }
-    
+
     async def get_children_paginated(
-        self, 
-        node_id: str, 
-        limit: int = 50, 
+        self,
+        node_id: str,
+        limit: int = 50,
         offset: int = 0,
         type_filter: str | None = None,
     ) -> dict[str, Any]:
         """
         Get paginated children of a node.
-        
+
         Args:
             node_id: ID of the parent node
             limit: Maximum number of results
             offset: Number of results to skip
             type_filter: Optional filter by node type (package, module, class, function, variable)
-        
+
         Returns:
             Dictionary containing:
             - children: List of child nodes
@@ -1052,14 +1066,14 @@ class Neo4jClient(LoggerMixin):
         if type_filter:
             type_map = {
                 "package": "Package",
-                "module": "Module", 
+                "module": "Module",
                 "class": "Class",
                 "function": "Function",
                 "variable": "Variable",
             }
             if type_filter.lower() in type_map:
                 type_clause = f"AND '{type_map[type_filter.lower()]}' IN labels(child)"
-        
+
         query = f"""
         MATCH (parent {{id: $node_id}})-[:CONTAINS]->(child)
         WHERE true {type_clause}
@@ -1090,24 +1104,24 @@ class Neo4jClient(LoggerMixin):
                all_children[$offset..$offset + $limit] as children
         """
         result = await self.execute_query(query, {
-            "node_id": node_id, 
-            "limit": limit, 
+            "node_id": node_id,
+            "limit": limit,
             "offset": offset
         })
-        
+
         if not result:
             return {"children": [], "total": 0, "has_more": False}
-        
+
         record = result[0]
         total = record["total"]
         children = record["children"]
-        
+
         return {
             "children": children,
             "total": total,
             "has_more": offset + len(children) < total,
         }
-    
+
     async def get_nodes_at_depth(
         self,
         root_id: str,
@@ -1116,12 +1130,12 @@ class Neo4jClient(LoggerMixin):
     ) -> list[dict[str, Any]]:
         """
         Get all nodes at a specific depth from a root node.
-        
+
         Args:
             root_id: ID of the root node (or empty for absolute root)
             depth: Depth level (1 = direct children, 2 = grandchildren, etc.)
             limit: Maximum number of results
-        
+
         Returns:
             List of nodes at the specified depth
         """
@@ -1150,7 +1164,7 @@ class Neo4jClient(LoggerMixin):
         else:
             # Get root-level nodes if no root_id
             return await self.get_root_nodes()
-    
+
     async def get_subtree(
         self,
         root_id: str,
@@ -1159,14 +1173,14 @@ class Neo4jClient(LoggerMixin):
     ) -> dict[str, Any]:
         """
         Get a subtree starting from a node up to a maximum depth.
-        
+
         Useful for preloading visible portions of the tree.
-        
+
         Args:
             root_id: ID of the root node
             max_depth: Maximum depth to traverse
             limit_per_level: Maximum children per node
-        
+
         Returns:
             Dictionary containing the node and its nested children
         """
@@ -1204,10 +1218,10 @@ class Neo4jClient(LoggerMixin):
                descendants
         """
         result = await self.execute_query(query, {"root_id": root_id})
-        
+
         if not result:
             return {"id": root_id, "name": "", "type": "unknown", "children": []}
-        
+
         record = result[0]
         return {
             "id": record["id"],
@@ -1219,12 +1233,12 @@ class Neo4jClient(LoggerMixin):
     async def get_node_connections(self, node_id: str) -> list[dict[str, Any]]:
         """
         Get all nodes that this node connects to (outgoing) and are connected from (incoming).
-        
+
         Excludes CONTAINS relationships.
-        
+
         Args:
             node_id: ID of the node
-        
+
         Returns:
             List of connected nodes with edge information
         """
@@ -1241,7 +1255,7 @@ class Neo4jClient(LoggerMixin):
             direction: 'outgoing',
             line_number: target.line_number
         }) as outgoing
-        
+
         OPTIONAL MATCH (source)-[inc]->(n)
         WHERE NOT type(inc) IN ['CONTAINS']
         WITH outgoing, collect({
@@ -1253,7 +1267,7 @@ class Neo4jClient(LoggerMixin):
             direction: 'incoming',
             line_number: source.line_number
         }) as incoming
-        
+
         RETURN [c IN outgoing + incoming WHERE c.id IS NOT NULL] as connections
         """
         result = await self.execute_query(query, {"node_id": node_id})

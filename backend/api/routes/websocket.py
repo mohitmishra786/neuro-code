@@ -224,7 +224,7 @@ async def websocket_endpoint(websocket: WebSocket) -> None:
                         "message": "Invalid JSON",
                     })
 
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 # Send heartbeat on timeout
                 import time
                 await manager.send_to(websocket, {

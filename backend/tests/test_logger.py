@@ -5,7 +5,6 @@ Verifies that the LoggerMixin properly isolates logger instances
 and prevents subclass name collisions.
 """
 
-import pytest
 
 from utils.logger import LoggerMixin
 

@@ -4,9 +4,9 @@ Tests for Neo4jClient connectivity improvements.
 Verifies that Neo4j connection is non-blocking with timeout support.
 """
 
-import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
-import asyncio
+
+import pytest
 
 
 class TestNeo4jClientConnect:
@@ -28,8 +28,21 @@ class TestNeo4jClientConnect:
         """Test that connect returns True when successful."""
         from graph_db.neo4j_client import Neo4jClient
 
-        with patch('graph_db.neo4j_client.AsyncGraphDatabase.driver', return_value=mock_driver):
+        mock_session = MagicMock()
+        mock_session.run = AsyncMock()
+        mock_driver.session.return_value.__aenter__ = AsyncMock(return_value=mock_session)
+        mock_driver.session.return_value.__aexit__ = AsyncMock(return_value=None)
+
+        with patch(
+            "graph_db.neo4j_client.AsyncGraphDatabase.driver", return_value=mock_driver
+        ):
             client = Neo4jClient()
+            client._settings = MagicMock()
+            client._settings.uri = "bolt://localhost:7687"
+            client._settings.user = "neo4j"
+            client._settings.password = "secure-test-password"
+            client._settings.database = "neo4j"
+            client._settings.max_connection_pool_size = 10
             result = await client.connect(timeout=5.0)
 
             assert result is True
@@ -41,11 +54,19 @@ class TestNeo4jClientConnect:
         from graph_db.neo4j_client import Neo4jClient
 
         mock_driver = MagicMock()
-        mock_driver.verify_connectivity = AsyncMock(side_effect=asyncio.TimeoutError())
+        mock_driver.verify_connectivity = AsyncMock(side_effect=TimeoutError())
         mock_driver.close = AsyncMock()
 
-        with patch('graph_db.neo4j_client.AsyncGraphDatabase.driver', return_value=mock_driver):
+        with patch(
+            "graph_db.neo4j_client.AsyncGraphDatabase.driver", return_value=mock_driver
+        ):
             client = Neo4jClient()
+            client._settings = MagicMock()
+            client._settings.uri = "bolt://localhost:7687"
+            client._settings.user = "neo4j"
+            client._settings.password = "secure-test-password"
+            client._settings.database = "neo4j"
+            client._settings.max_connection_pool_size = 10
             result = await client.connect(timeout=1.0)
 
             assert result is False

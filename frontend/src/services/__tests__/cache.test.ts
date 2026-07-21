@@ -2,7 +2,15 @@
  * Cache Service Tests
  */
 
-import { describe, it, expect, beforeEach, afterEach, vi, test } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import {
+    DB_NAME,
+    DB_VERSION,
+    CACHE_TTL_MS,
+    MAX_CACHE_SIZE,
+    MAX_CHILDREN_CACHE_SIZE,
+    MAX_ACCESS_TRACKING,
+} from '@/services/cache';
 
 describe('CacheService', () => {
     beforeEach(() => {
@@ -54,7 +62,8 @@ describe('CacheService', () => {
         });
 
         it('should have MAX_ACCESS_TRACKING defined', () => {
-            expect(MAX_CACHE_SIZE + 1000).toBe(11000);
+            expect(MAX_ACCESS_TRACKING).toBe(MAX_CACHE_SIZE + 1000);
+            expect(MAX_ACCESS_TRACKING).toBe(11000);
         });
     });
 });

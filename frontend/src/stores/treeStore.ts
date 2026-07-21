@@ -10,7 +10,10 @@ import { persist, createJSONStorage } from 'zustand/middleware';
 import { Node, Edge, NodeChange, EdgeChange, applyNodeChanges, applyEdgeChanges } from 'reactflow';
 import { api } from '@/services/api';
 import { cache } from '@/services/cache';
-import { GraphNode, NodeType, EdgeType, NODE_TYPE_CIRCLE } from '@/types/graph.types';
+import { GraphNode, EdgeType, NODE_TYPE_CIRCLE } from '@/types/graph.types';
+import { NODE_COLORS } from '@/constants/nodeColors';
+
+export { NODE_COLORS };
 
 // Tree node with visual properties
 export interface TreeNode extends GraphNode {
@@ -18,12 +21,6 @@ export interface TreeNode extends GraphNode {
     depth: number;
     x?: number;
     y?: number;
-}
-
-// Serializable node cache entry
-interface NodeCacheEntry {
-    node: TreeNode;
-    timestamp: number;
 }
 
 // Build parent-to-children mapping for efficient descendant lookups
@@ -60,23 +57,14 @@ function findDescendants(nodeId: string, parentMap: Map<string, string[]>): Set<
 }
 
 // Expansion attempt tracking for infinite loop prevention
-const expansionAttempts = new Map<string, number>();
+const expansionAttempts = new Map<string, { count: number; lastAt: number }>();
 const MAX_EXPANSION_ATTEMPTS = 3;
 const EXPANSION_COOLDOWN_MS = 5000;
 
 // Search request tracking for race condition prevention
 let searchRequestId = 0;
-let currentSearchId = 0;
 
-// Node colors by type
-export const NODE_COLORS: Record<NodeType, string> = {
-    package: '#6366f1',   // Indigo
-    module: '#8b5cf6',    // Purple
-    class: '#10b981',     // Emerald
-    function: '#f59e0b',  // Amber
-    variable: '#ec4899',  // Pink
-    unknown: '#64748b',   // Slate
-};
+// NODE_COLORS re-exported from @/constants/nodeColors (single source of truth)
 
 interface TreeState {
     /**
@@ -397,19 +385,20 @@ export const useTreeStore = create<TreeState>()(
     },
 
     expandNode: async (nodeId: string) => {
-        const { nodeCache, expandedIds, isExpanding, isOnline, selectedNodeId } = get();
+        const { nodeCache, expandedIds, isExpanding, selectedNodeId } = get();
 
-        // Prevent infinite expansion loops
+        // Prevent infinite expansion loops (reset window after cooldown)
         const now = Date.now();
-        const lastAttempt = expansionAttempts.get(nodeId) ?? 0;
-        if (now - lastAttempt < EXPANSION_COOLDOWN_MS) {
-            const attempts = expansionAttempts.get(nodeId) ?? 0;
-            if (attempts >= MAX_EXPANSION_ATTEMPTS) {
+        const attemptMeta = expansionAttempts.get(nodeId);
+        if (attemptMeta && now - attemptMeta.lastAt < EXPANSION_COOLDOWN_MS) {
+            if (attemptMeta.count >= MAX_EXPANSION_ATTEMPTS) {
                 console.warn(`[TreeStore] Expansion blocked for ${nodeId} - too many attempts`);
                 return;
             }
+            expansionAttempts.set(nodeId, { count: attemptMeta.count + 1, lastAt: now });
+        } else {
+            expansionAttempts.set(nodeId, { count: 1, lastAt: now });
         }
-        expansionAttempts.set(nodeId, (expansionAttempts.get(nodeId) ?? 0) + 1);
 
         if (expandedIds.has(nodeId) || isExpanding.has(nodeId)) {
             return;
@@ -435,7 +424,7 @@ export const useTreeStore = create<TreeState>()(
         
         try {
             // Try to get cached children first
-            let cachedChildren = await cache.getChildren(nodeId);
+            const cachedChildren = await cache.getChildren(nodeId);
             let result: { children: GraphNode[]; outgoing: Array<{ id: string; edgeType: string }> };
             
             if (cachedChildren && cachedChildren.length > 0) {
@@ -472,52 +461,49 @@ export const useTreeStore = create<TreeState>()(
             const seenIds = new Set<string>();
             const duplicateIds: string[] = [];
 
-            // Add children
+            // Add children (do not shadow parent nodeId)
+            const parentId = nodeId;
             result.children.forEach((child, index) => {
-                let nodeId = child.id;
-                
+                let childId = child.id;
+
                 // Check for duplicate ID
-                if (!isIdUnique(nodeId, newNodeCache)) {
-                    if (!seenIds.has(nodeId)) {
-                        duplicateIds.push(nodeId);
+                if (!isIdUnique(childId, newNodeCache)) {
+                    if (!seenIds.has(childId)) {
+                        duplicateIds.push(childId);
                     }
-                    // Generate unique ID
-                    nodeId = generateUniqueId(child.id);
+                    childId = generateUniqueId(child.id);
                 }
-                
-                const treeNode = toTreeNode({ ...child, id: nodeId }, nodeId, parentDepth + 1);
-                // Position below parent
+
+                const treeNode = toTreeNode({ ...child, id: childId }, parentId, parentDepth + 1);
                 const parentX = parentNode?.x ?? 0;
                 const parentY = parentNode?.y ?? 0;
                 treeNode.x = parentX + (index - result.children.length / 2) * 150;
                 treeNode.y = parentY + 120;
-                
-                newNodeCache.set(nodeId, treeNode);
-                newNodes.push(toReactFlowNode(treeNode, false, nodeId === selectedNodeId));
-                newEdges.push(createEdge(nodeId, nodeId, 'contains'));
-                seenIds.add(nodeId);
+
+                newNodeCache.set(childId, treeNode);
+                newNodes.push(toReactFlowNode(treeNode, false, childId === selectedNodeId));
+                newEdges.push(createEdge(parentId, childId, 'contains'));
+                seenIds.add(childId);
             });
-            
-            // Log duplicates for debugging
+
             if (duplicateIds.length > 0) {
                 console.warn('[TreeStore] Duplicate node IDs detected and fixed:', duplicateIds);
             }
-            
+
             // Add outgoing connections (calls, imports, inherits)
             result.outgoing.forEach((connection) => {
-                // Only add edge if target exists in cache
                 if (newNodeCache.has(connection.id) || nodeCache.has(connection.id)) {
                     const edgeType = connection.edgeType.toLowerCase() as EdgeType;
-                    newEdges.push(createEdge(nodeId, connection.id, edgeType));
+                    newEdges.push(createEdge(parentId, connection.id, edgeType));
                 }
             });
-            
+
             set(state => ({
                 nodeCache: newNodeCache,
                 nodes: [...state.nodes, ...newNodes],
                 edges: [...state.edges, ...newEdges],
-                expandedIds: new Set([...state.expandedIds, nodeId]),
-                isExpanding: new Set([...state.isExpanding].filter(id => id !== nodeId)),
+                expandedIds: new Set([...state.expandedIds, parentId]),
+                isExpanding: new Set([...state.isExpanding].filter(id => id !== parentId)),
             }));
             
         } catch (error) {
@@ -603,14 +589,14 @@ export const useTreeStore = create<TreeState>()(
                 }
                 visitedIds.add(currentNode.id);
                 
-                breadcrumbPath.unshift(currentNode);
-                
-                // Safety check for deeply nested paths
-                if (breadcrumbPath.length > 1000) {
+                // Safety check for deeply nested paths (cap before pushing)
+                if (breadcrumbPath.length >= 1000) {
                     console.warn('[TreeStore] Breadcrumb path exceeds maximum depth');
                     break;
                 }
-                
+
+                breadcrumbPath.unshift(currentNode);
+
                 if (!currentNode.parentId) break;
                 currentNode = nodeCache.get(currentNode.parentId);
             }
@@ -668,14 +654,16 @@ export const useTreeStore = create<TreeState>()(
     },
 
     onNodesChange: (changes: readonly NodeChange[]) => {
+        // Pass arrays without extra copy of nodes/edges so React Flow can
+        // reuse referential equality where possible (CodeRabbit perf note).
         set(state => ({
-            nodes: applyNodeChanges([...changes], state.nodes),
+            nodes: applyNodeChanges(changes as NodeChange[], state.nodes as Node[]),
         }));
     },
 
     onEdgesChange: (changes: readonly EdgeChange[]) => {
         set(state => ({
-            edges: applyEdgeChanges([...changes], state.edges),
+            edges: applyEdgeChanges(changes as EdgeChange[], state.edges as Edge[]),
         }));
     },
 
@@ -696,8 +684,9 @@ export const useTreeStore = create<TreeState>()(
         
         // Check online status for search requests
         if (typeof navigator !== 'undefined' && !navigator.onLine) {
-            set({ 
+            set({
                 searchQuery: query,
+                isOnline: false,
                 error: 'You are offline. Search results may be outdated.',
             });
             return;
@@ -735,7 +724,6 @@ export const useTreeStore = create<TreeState>()(
         const { focusNode } = get();
         
         // Cancel any pending search navigation by incrementing the search ID
-        ++currentSearchId;
         ++searchRequestId;
         
         await focusNode(nodeId);
@@ -753,7 +741,9 @@ export const useTreeStore = create<TreeState>()(
     reset: () => {
         // Clear local cache as well
         cache.clear().catch(console.error);
-        
+        expansionAttempts.clear();
+        searchRequestId = 0;
+
         set({
             nodes: [],
             edges: [],
@@ -767,6 +757,7 @@ export const useTreeStore = create<TreeState>()(
             error: null,
             searchQuery: '',
             searchResults: [],
+            isOnline: typeof navigator !== 'undefined' ? navigator.onLine : true,
         });
     },
 }), {
@@ -786,18 +777,28 @@ export const useTreeStore = create<TreeState>()(
             isExpanded: node.isExpanded,
         })),
     }),
-    merge: (persisted: Partial<TreeState> | undefined, current: TreeState): TreeState => {
-        const merged = { ...current, ...persisted };
+    merge: (persistedState: unknown, current: TreeState): TreeState => {
+        const persisted = (persistedState ?? {}) as Partial<TreeState> & {
+            expandedIds?: string[] | Set<string>;
+            breadcrumbPath?: TreeNode[];
+        };
 
-        if (persisted?.expandedIds && Array.isArray(persisted.expandedIds)) {
-            merged.expandedIds = new Set(persisted.expandedIds);
-        }
+        const expandedIds = persisted.expandedIds
+            ? Array.isArray(persisted.expandedIds)
+                ? new Set(persisted.expandedIds)
+                : new Set(persisted.expandedIds)
+            : current.expandedIds;
 
-        if (persisted?.breadcrumbPath && Array.isArray(persisted.breadcrumbPath)) {
-            merged.breadcrumbPath = persisted.breadcrumbPath;
-        }
+        const breadcrumbPath = Array.isArray(persisted.breadcrumbPath)
+            ? persisted.breadcrumbPath
+            : current.breadcrumbPath;
 
-        return merged;
+        return {
+            ...current,
+            ...persisted,
+            expandedIds,
+            breadcrumbPath,
+        };
     },
 }));
 

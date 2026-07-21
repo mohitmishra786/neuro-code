@@ -53,13 +53,16 @@ dev = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/your-org/neurocode"
-Documentation = "https://github.com/your-org/neurocode#readme"
-Repository = "https://github.com/your-org/neurocode"
-Issues = "https://github.com/your-org/neurocode/issues"
+Homepage = "https://github.com/mohitmishra786/neuro-code"
+Documentation = "https://github.com/mohitmishra786/neuro-code#readme"
+Repository = "https://github.com/mohitmishra786/neuro-code"
+Issues = "https://github.com/mohitmishra786/neuro-code/issues"
 
 [project.scripts]
-neurocode = "neurocode.cli:main"
+neurocode = "cli_main:main"
+
+[tool.setuptools]
+py-modules = ["cli_main"]
 
 [tool.setuptools.packages.find]
 where = ["."]
@@ -68,6 +71,8 @@ include = ["parser*", "graph_db*", "merkle*", "watcher*", "api*", "utils*"]
 [tool.ruff]
 target-version = "py311"
 line-length = 100
+
+[tool.ruff.lint]
 select = [
     "E",      # pycodestyle errors
     "W",      # pycodestyle warnings
@@ -83,9 +88,16 @@ ignore = [
     "E501",   # line too long (handled by formatter)
     "B008",   # do not perform function calls in argument defaults
     "B904",   # raise without from inside except
+    "W293",   # blank line whitespace in legacy modules
+    "ARG001", # unused function args (middleware processor signatures)
+    "ARG002", # unused method args (API protocol compatibility)
+    "SIM",    # flake8-simplify style nits (legacy volume)
+    "F841",   # unused local assignment in tests/legacy
+    "B007",   # unused loop variable in legacy loops
+    "UP042",  # StrEnum migration deferred
 ]
 
-[tool.ruff.isort]
+[tool.ruff.lint.isort]
 known-first-party = ["parser", "graph_db", "merkle", "watcher", "api", "utils"]
 
 [tool.mypy]

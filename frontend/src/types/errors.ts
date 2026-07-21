@@ -15,6 +15,18 @@ export class NeuroCodeError extends Error {
     }
 }
 
+/** HTTP API failure with status code (used by services/api.ts). */
+export class ApiError extends NeuroCodeError {
+    constructor(
+        public readonly status: number,
+        message: string,
+        context?: Record<string, unknown>,
+    ) {
+        super(message, 'API_ERROR', { status, ...context });
+        this.name = 'ApiError';
+    }
+}
+
 export class ApiValidationError extends NeuroCodeError {
     constructor(
         message: string,
@@ -72,6 +84,7 @@ export class WebSocketError extends NeuroCodeError {
 // Error code constants
 export const ErrorCodes = {
     UNKNOWN: 'UNKNOWN',
+    API_ERROR: 'API_ERROR',
     API_VALIDATION_ERROR: 'API_VALIDATION_ERROR',
     PARSE_ERROR: 'PARSE_ERROR',
     GRAPH_ERROR: 'GRAPH_ERROR',

@@ -1,0 +1,20 @@
+# NeuroCode
+
+> Self-hosted hierarchical knowledge graph for Python codebases (Tree-sitter → Neo4j → ReactFlow).
+
+NeuroCode parses Python projects into an explorable package/module/class/function graph. Designed for engineers onboarding to large local codebases. MIT licensed. Early alpha (0.1.x).
+
+## Docs
+
+- [README / Quick Start](https://github.com/mohitmishra786/neuro-code/blob/main/README.md)
+- [Architecture](https://github.com/mohitmishra786/neuro-code/blob/main/docs/ARCHITECTURE.md)
+- [API](https://github.com/mohitmishra786/neuro-code/blob/main/docs/API.md)
+- [Deployment](https://github.com/mohitmishra786/neuro-code/blob/main/docs/DEPLOYMENT.md)
+- [Security model](https://github.com/mohitmishra786/neuro-code/blob/main/SECURITY.md)
+- [UI tokens](https://github.com/mohitmishra786/neuro-code/blob/main/docs/UI.md)
+- [Benchmarks / goals](https://github.com/mohitmishra786/neuro-code/blob/main/docs/BENCHMARKS.md)
+
+## Optional
+
+- [GitHub Repository](https://github.com/mohitmishra786/neuro-code)
+- [Demo package](https://github.com/mohitmishra786/neuro-code/tree/main/examples/demo_pkg)
