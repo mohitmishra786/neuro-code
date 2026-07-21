@@ -15,11 +15,11 @@
 
 ### Still risky before a real launch
 
-1. **Issue optics:** 123 open agent-generated GitHub issues not bulk-closed (needs H4).  
-2. **Live GIF:** hero is SVG diagram, not a recorded session GIF (needs running stack capture).  
-3. **Frontend type-check debt:** full `tsc` still has pre-existing errors outside stable suites; CI gates on lint + stable vitest.  
+1. **Issue optics:** agent-generated backlog was **bulk-closed**; remaining human issues #222–#225 track real follow-ups.  
+2. **Live GIF:** hero is SVG diagram, not a recorded session GIF (needs running stack capture — #223).  
+3. **Type debt:** backend mypy is advisory in CI (pre-existing strict-mode debt); frontend gates on `tsc -p tsconfig.app.json` + full vitest.  
 4. **No public launch** executed (H3/H6).  
-5. **Demo path** not friend-tested on a cold machine in this session (Docker/Neo4j not running here).
+5. **Demo path** should be friend-tested on a cold machine before Show HN.
 
 ### Skills used
 
@@ -38,7 +38,7 @@
 | H1 | GitHub Sponsors username for optional FUNDING.yml? | Optional funding |
 | H2 | Preferred security contact beyond private vuln reporting? | SECURITY.md email line |
 | H3 | Authorize public Show HN / Reddit / Awesome PRs? | Launch execute |
-| H4 | Authorize bulk close of ~100 agent issues via `gh`? | Issue count optics |
+| H4 | ~~Authorize bulk close of ~100 agent issues via `gh`?~~ **DONE** (closed as not-planned) | Issue count optics |
 | H5 | Enable GitHub Discussions? | Launch Q&A |
 | H6 | Launch calendar date for Show HN? | Art 8 |
 | H7 | Day-90 monetization go/no-go after metrics? | Art 10 Stage 1+ |
@@ -50,7 +50,7 @@
 | Artifact | Status | Notes |
 |----------|--------|-------|
 | 01 Positioning | **done** (code/content) | GitHub description+topics set via `gh` |
-| 02 Tech health | **done** (major) | CI, LICENSE, SECURITY, path auth, parser fixes; issues not triaged (H4) |
+| 02 Tech health | **done** (major) | CI/lint/security workflows, LICENSE, SECURITY, path auth, parser fixes; agent issues bulk-closed (H4) |
 | 03 UI | **done** (content/code) | SVG hero; live GIF deferred |
 | 04 UX | **done** | make demo + empty/health UI |
 | 05 SEO | **done** (in-repo) | topics, llms.txt; Awesome PRs not submitted |
@@ -67,7 +67,9 @@
 ## Key deliverables landed
 
 - `LICENSE`, `SECURITY.md`, `CONTRIBUTING.md`, `CODE_OF_CONDUCT.md`, `CHANGELOG.md`  
-- `.github/workflows/ci.yml`, `.github/dependabot.yml`  
+- `.github/workflows/ci.yml`, `lint.yml`, `security.yml`, `.github/dependabot.yml`, `.pre-commit-config.yaml`  
+- Local parity: `make check` / `scripts/check.sh` mirrors CI scopes  
+
 - `make demo` / `scripts/first_run.sh` / `examples/demo_pkg`  
 - README rewrite (persona, ReactFlow, goals not claims, competitor table, hero SVG)  
 - Parse allowlist (`API_ALLOWED_PARSE_PATHS`) + tests  

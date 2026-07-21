@@ -6,11 +6,11 @@ Requires Python 3.11+.
 """
 
 from dataclasses import dataclass
-from enum import Enum
+from enum import StrEnum
 from typing import Any
 
 
-class NodeLabel(str, Enum):
+class NodeLabel(StrEnum):
     """Node labels in the graph."""
 
     PACKAGE = "Package"
@@ -21,7 +21,7 @@ class NodeLabel(str, Enum):
     IMPORT = "Import"
 
 
-class RelationshipLabel(str, Enum):
+class RelationshipLabel(StrEnum):
     """Relationship labels in the graph."""
 
     CONTAINS = "CONTAINS"

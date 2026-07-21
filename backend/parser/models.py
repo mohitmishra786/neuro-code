@@ -7,13 +7,13 @@ Requires Python 3.11+.
 """
 
 from dataclasses import dataclass, field
-from enum import Enum
+from enum import StrEnum
 from pathlib import Path
 from typing import Any
 from weakref import ReferenceType, ref
 
 
-class NodeType(str, Enum):
+class NodeType(StrEnum):
     """Types of nodes in the code graph."""
 
     PACKAGE = "package"
@@ -27,7 +27,7 @@ class NodeType(str, Enum):
     PARAMETER = "parameter"
 
 
-class RelationshipType(str, Enum):
+class RelationshipType(StrEnum):
     """Types of relationships between nodes."""
 
     CONTAINS = "contains"
@@ -44,7 +44,7 @@ class RelationshipType(str, Enum):
     WRITES = "writes"
 
 
-class AccessType(str, Enum):
+class AccessType(StrEnum):
     """Variable access types."""
 
     READ = "read"

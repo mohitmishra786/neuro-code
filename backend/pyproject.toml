@@ -94,7 +94,6 @@ ignore = [
     "SIM",    # flake8-simplify style nits (legacy volume)
     "F841",   # unused local assignment in tests/legacy
     "B007",   # unused loop variable in legacy loops
-    "UP042",  # StrEnum migration deferred
 ]
 
 [tool.ruff.lint.isort]
@@ -114,7 +113,9 @@ warn_redundant_casts = true
 [[tool.mypy.overrides]]
 module = [
     "tree_sitter.*",
+    "tree_sitter_python.*",
     "neo4j.*",
+    "dotenv.*",
 ]
 ignore_missing_imports = true
 
