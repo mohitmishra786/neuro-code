@@ -85,7 +85,7 @@ jobs:
       # Download official release binary (no third-party action; avoid install.sh flakiness)
       - name: Install Trivy
         env:
-          TRIVY_VERSION: "0.58.2"
+          TRIVY_VERSION: "0.72.0"
         run: |
           set -euo pipefail
           mkdir -p "$HOME/.local/bin"
