@@ -12,7 +12,7 @@ neo4j>=5.17.0
 
 # Parsing
 tree-sitter>=0.26.0
-tree-sitter-python>=0.21.0
+tree-sitter-python>=0.25.0
 
 # File Watching
 watchdog>=4.0.0
