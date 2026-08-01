@@ -3,7 +3,7 @@
 
 # Core Framework
 fastapi>=0.139.2
-uvicorn[standard]>=0.51.0
+uvicorn[standard]>=0.52.0
 pydantic>=2.6.0
 pydantic-settings>=2.1.0
 
